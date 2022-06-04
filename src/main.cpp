@@ -4,7 +4,7 @@
 // Definitions
 #define SHUTDOWN_CIRCUIT_PIN A3
 #define READY_TO_DRIVE_INPUT A2
-#define READY_TO_DRIVE_OUTPUT 7
+#define READY_TO_DRIVE_OUTPUT A4
 enum RELAY_RESET_MODES
 {
   RELAY_RESET_OFF,
@@ -30,7 +30,7 @@ int out = 0;                     // declare reading for output
 int sensor1;                     // declare reading for inverted signal
 int sensor2;                     // declare reading for non-inverted signal
 unsigned long previousTime = 0;  // declare time before each iteration
-long interval = 99;              // declare interval (100 ms)
+unsigned long firstDeviadeTime = 0;
 bool error = false;              // declare ERROR value to default = false
 unsigned long currentTime = 0;   // declare timer
 const int light = 13;            // declare error light
@@ -137,11 +137,16 @@ void loop()
   {
     if ((abs(sg2_percent - sg1_percent) > 10))
     {                         // check if difference between signals is more than 10%, do this:
-      currentTime = millis(); // timer
-      if (currentTime > interval)
+      if (firstDeviadeTime != 0)
+        firstDeviadeTime = millis();
+      if (millis() - firstDeviadeTime > 100)
       {               // if they deviate for more than 100 ms:
         error = true; // set ERROR to true
       }
+    }
+    else
+    {
+      firstDeviadeTime = 0;
     }
 
     if (sg2_percent < 0 || sg2_percent > 100 || sg1_percent < 0 || sg1_percent > 100) // check if the signals are too low/high
@@ -176,14 +181,14 @@ void loop()
     RELAY_RESET_STATE = RELAY_RESET_ENABLE;
   }
 
-  else if (RELAY_RESET_ENABLE && (millis() - reset_timer >= 200))
+  else if (RELAY_RESET_STATE == RELAY_RESET_ENABLE && (millis() - reset_timer >= 200))
   {
     commandedInverterMessage.data[4] = 0x01;
     can0.sendMessage(&commandedInverterMessage);
     reset_timer = millis();
     RELAY_RESET_STATE = RELAY_RESET_DISABLE;
   }
-  else if (RELAY_RESET_DISABLE && (millis() - reset_timer >= 200))
+  else if (RELAY_RESET_STATE == RELAY_RESET_DISABLE && (millis() - reset_timer >= 200))
   {
     commandedInverterMessage.data[4] = 0x00;
     can0.sendMessage(&commandedInverterMessage);
