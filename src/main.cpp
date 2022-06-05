@@ -14,7 +14,8 @@ enum RELAY_RESET_MODES
 };
 int RELAY_RESET_STATE = RELAY_RESET_OFF;
 
-// Define canbus frames
+// Define canbus fram
+
 struct can_frame commandedInverterMessage; // To send for one peace of data. Can be duplicated for other ID's and data
 struct can_frame clearFaultsCanFrame;
 struct can_frame canReceive;
@@ -23,8 +24,8 @@ MCP2515 can0(10); // Chip select
 // Sensors have 15-360 degrees, so values must be: 315 to 1023 | 1 to 708
 // Accelerator Pedal Position Sensor
 
-int sg1 = A0;                    // declare pin for inverted signal
-int sg2 = A1;                    // declare pin for non-inverted signal
+#define SENSOR_1_PIN A0          // declare pin for inverted signal
+#define SENSOR_2_PIN A1          // declare pin for non-inverted signal
 const int outPin = 12;           // declare pin for output
 int out = 0;                     // declare reading for output
 int sensor1;                     // declare reading for inverted signal
@@ -38,8 +39,7 @@ const double offset2 = 2.3668;   // offset for non-inverted signal
 const double offset1 = 1.1105;   // offset for inverted signal
 const double offset2_2 = 2.7222; // offset for non-inverted signal
 const double offset1_2 = 1.6667; // offset for inverted signal
-const double gain = 2.5;         // GAIN
-
+int torque = 0;
 void clearFaults()
 {
   // TODO update comments
@@ -56,6 +56,7 @@ void clearFaults()
   clearFaultsCanFrame.data[7] = 0x00; // Not in use
   //---CAN DATA END --- //
   can0.sendMessage(&clearFaultsCanFrame);
+  Serial.print("Faults cleared");
 }
 void setup()
 {
@@ -77,8 +78,19 @@ void setup()
 
   can0.reset();
   can0.setBitrate(CAN_500KBPS); // Rate of CANBUS 500kbps for normal usage
+
+  // Configure CAN-bus masks
+  can0.setConfigMode();
+  can0.setFilterMask(MCP2515::MASK0, false, 0xFFF);
+  can0.setFilterMask(MCP2515::MASK1, false, 0xFFF);
+  can0.setFilter(MCP2515::RXF0, false, 0x0AA);
+  can0.setFilter(MCP2515::RXF1, false, 0x0AA);
+  can0.setFilter(MCP2515::RXF2, false, 0x0AA);
+  can0.setFilter(MCP2515::RXF3, false, 0x0AA);
+  can0.setFilter(MCP2515::RXF4, false, 0x0AA);
+  can0.setFilter(MCP2515::RXF5, false, 0x0AA);
+
   can0.setNormalMode();
-  can0.setFilterMask(MCP2515::MASK0, true, 0x0AA);
   // pinMode(outPin, OUTPUT);       // set output to right mode
   Serial.begin(9600);       // start monitor for values
   pinMode(light, OUTPUT);   // set output for error light
@@ -99,6 +111,10 @@ void loop()
   ready_to_drive_toggle = (ready_to_drive != digitalRead(READY_TO_DRIVE_INPUT) ? 1 : 0);
   ready_to_drive = digitalRead(READY_TO_DRIVE_INPUT);
 
+  // TODO Make the inverter enable when the time is, not by time
+  if (millis() > 4000)
+    commandedInverterMessage.data[5] = 0x01; // 5.0 Inverter enable(0 off, 1 on)
+
   // --- CANBUS read ---
   // TODO If in VSM state below 4, set R2D_toggled 0
   if (can0.readMessage(&canReceive) == MCP2515::ERROR_OK)
@@ -111,22 +127,28 @@ void loop()
       VSM_toggled = (VSM_state < 4 ? 0 : VSM_toggled);
     }
   }
-  sensor1 = (analogRead(sg1) * (5 / 1023)) / gain + offset2_2; // read inverted signal
-  sensor2 = (analogRead(sg2) * (5 / 1023)) / gain + offset1_2; // read non-inverted signal
-
-  double sg2_percent = (sensor2 - offset2_2) * 163;        // convert to percent for non-inverted
-  double sg1_percent = 100 - ((sensor1 - offset1_2) * 90); // convert to percent for inverted
-
-  Serial.print("Percent: ");
+  sensor1 = analogRead(SENSOR_1_PIN); // read inverted signal
+  sensor2 = analogRead(SENSOR_2_PIN); // read non-inverted signal
+  int sg1_val = map(constrain(sensor1, 540, 830), 540, 830, 700, 0);
+  int sg2_val = map(constrain(sensor2, 200, 485), 200, 485, 0, 700);
+  int sg1_percent = map(constrain(sensor1, 540, 830), 540, 830, 100, 0);
+  int sg2_percent = map(constrain(sensor2, 200, 485), 200, 485, 0, 100);
+  Serial.print(analogRead(SENSOR_1_PIN));
+  Serial.print(";");
+  Serial.print(analogRead(SENSOR_2_PIN));
+  Serial.println("");
+  Serial.print("Percent total: ");
+  Serial.print(abs(sg1_percent - sg2_percent)); // print percent for inverted signal
+  Serial.print(" ");
   Serial.print(sg1_percent); // print percent for inverted signal
-  Serial.print(" and ");
-  Serial.print(sg2_percent); // print percent for non-inverted signal
+  Serial.print(" ");
+  Serial.print(sg2_percent); // print percent for inverted signal
 
   Serial.print("          ");
 
-  Serial.print(1023 - sensor1); // print inverted signal, inverted to normal
+  Serial.print(sg1_val); // print inverted signal, inverted to normal
   Serial.print(" and ");
-  Serial.print(sensor2); // print non-inverted signal
+  Serial.print(sg2_val); // print non-inverted signal
 
   Serial.print("          ");
 
@@ -176,7 +198,6 @@ void loop()
   if (shutdown_circuit_toggle && shutdown_circuit == 1)
   {
     commandedInverterMessage.data[4] = 0x00;
-    can0.sendMessage(&commandedInverterMessage);
     reset_timer = millis();
     RELAY_RESET_STATE = RELAY_RESET_ENABLE;
   }
@@ -184,14 +205,12 @@ void loop()
   else if (RELAY_RESET_STATE == RELAY_RESET_ENABLE && (millis() - reset_timer >= 200))
   {
     commandedInverterMessage.data[4] = 0x01;
-    can0.sendMessage(&commandedInverterMessage);
     reset_timer = millis();
     RELAY_RESET_STATE = RELAY_RESET_DISABLE;
   }
   else if (RELAY_RESET_STATE == RELAY_RESET_DISABLE && (millis() - reset_timer >= 200))
   {
     commandedInverterMessage.data[4] = 0x00;
-    can0.sendMessage(&commandedInverterMessage);
     reset_timer = millis();
     RELAY_RESET_STATE = RELAY_RESET_OFF;
   }
@@ -200,9 +219,7 @@ void loop()
   {
     clearFaults();
     commandedInverterMessage.data[4] = 0x00; // Disable inverter
-    can0.sendMessage(&commandedInverterMessage);
   }
-
   // Enable or disable inverter based on switch
   if (ready_to_drive == 0)
     commandedInverterMessage.data[4] = 0x00;
@@ -222,10 +239,55 @@ void loop()
     digitalWrite(READY_TO_DRIVE_OUTPUT, LOW);
   }
 
-  // --- CAN-BUS ---
-  if (millis() - tempSendTime > 100)
-    can0.sendMessage(&commandedInverterMessage);
+  // Set speed
+  int tempSensor = constrain(sensor2, 225, 480);
+  torque = map(tempSensor, 225, 480, 0, 700);
+
+  commandedInverterMessage.data[0] = (uint8_t)(torque & 0x00FF);      // Commanded torque, first
+  commandedInverterMessage.data[1] = (uint8_t)((torque >> 8) & 0xFF); // Commanded torque, last
+
+  // Serial.print("Bits: ");
+  // Serial.print((uint8_t)(torque & 0x00FF), HEX);
+  // Serial.print(";");
+  // Serial.print((uint8_t)((torque >> 8) & 0xFF), HEX);
+  // Serial.print(" Torque: ");
+  // Serial.print(torque);
+  // Serial.print(" Sensor: ");
+  // Serial.print(sensor2);
+  // Serial.println("");
+  // Toggle off
   shutdown_circuit_toggle = 0;
   ready_to_drive_toggle = 0;
   VSM_toggled = 0;
+
+  // Fault staes
+  if (sensor2 < 100) // 100 bits = 0.5V diveation
+  {
+    error = true;
+    torque = 0;
+  }
+
+  if (sensor2 > 614)
+  {
+    error = true;
+    torque = 0;
+  }
+
+  if (error == true)
+  {
+    commandedInverterMessage.data[0] = 0x00; // Commanded torque, first
+    commandedInverterMessage.data[1] = 0x00; // Commanded torque, last
+    commandedInverterMessage.data[5] = 0x00; // 5.0 Inverter enable(0 off, 1 on)
+  }
+  Serial.print(commandedInverterMessage.data[0], HEX);
+  Serial.print(";");
+  Serial.print(commandedInverterMessage.data[1], HEX);
+  Serial.println("");
+
+  // --- CAN-BUS ---
+  if (millis() - tempSendTime > 100)
+  {
+    can0.sendMessage(&commandedInverterMessage);
+    tempSendTime = millis();
+  }
 }
