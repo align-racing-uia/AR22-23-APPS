@@ -5,8 +5,8 @@
 #define SHUTDOWN_CIRCUIT_PIN A3
 #define READY_TO_DRIVE_INPUT A2
 #define BUZZER_OUTPUT_PIN A4
-#define SENSOR_1_PIN A0 // declare pin for inverted signal
-#define SENSOR_2_PIN A1 // declare pin for non-inverted signal
+#define SENSOR_1_PIN A0 // Non inverted signal
+#define SENSOR_2_PIN A1 // Inverted signal
 #define SIGNAL_1_MAX 492
 #define SIGNAL_1_MIN 440
 #define SIGNAL_2_MAX 558
@@ -21,7 +21,7 @@ enum RELAY_RESET_MODES
 };
 int RELAY_RESET_STATE = RELAY_RESET_OFF;
 
-// Define canbus fram
+// Define canbus frame
 
 struct can_frame commandedInverterMessage; // To send for one peace of data. Can be duplicated for other ID's and data
 struct can_frame clearFaultsCanFrame;
@@ -38,6 +38,9 @@ bool error = false;            // declare ERROR value to default = false
 unsigned long currentTime = 0; // declare timer
 const int light = 13;          // declare error light
 int torque = 0;
+unsigned long tempSendTime, reset_timer = 0, r2dSoundStartTime;
+int shutdown_circuit_toggle, shutdown_circuit = 0, ready_to_drive_toggle, ready_to_drive, R2DS_toggled = 0, VSM_state = 0, VSM_toggled = 0;
+
 void clearFaults()
 {
   // Cascadia motion CAN Protocol page 39
@@ -99,9 +102,6 @@ void setup()
   pinMode(BUZZER_OUTPUT_PIN, OUTPUT);
 }
 
-unsigned long tempSendTime, reset_timer = 0, r2dSoundStartTime;
-int shutdown_circuit_toggle, shutdown_circuit = 0, ready_to_drive_toggle, ready_to_drive, R2DS_toggled = 0, VSM_state = 0, VSM_toggled = 0;
-
 void loop()
 {
   shutdown_circuit_toggle = (shutdown_circuit != digitalRead(SHUTDOWN_CIRCUIT_PIN) ? 1 : 0);
@@ -109,10 +109,6 @@ void loop()
 
   ready_to_drive_toggle = (ready_to_drive != digitalRead(READY_TO_DRIVE_INPUT) ? 1 : 0);
   ready_to_drive = digitalRead(READY_TO_DRIVE_INPUT);
-
-  // TODO Make the inverter enable when the time is, not by time (Ready to drive = Ok, Shutdown = High, VSM_State >=4)
-  if (millis() > 4000)
-    commandedInverterMessage.data[5] = 0x01; // 5.0 Inverter enable(0 off, 1 on)
 
   // --- CANBUS read ---
   // TODO If in VSM state below 4, set R2DS_toggled 0
@@ -199,39 +195,23 @@ void loop()
 
   // --- Inverter ---
   // Turn off relays if TSMS is toggled off.
-
-  if (shutdown_circuit_toggle && shutdown_circuit == 1)
+  // Reset relays if error has occured during precharge
+  if ((shutdown_circuit_toggle || ready_to_drive_toggle) && shutdown_circuit == 1 && ready_to_drive == 0 && VSM_state == 7)
   {
+    // Disable inverter
     commandedInverterMessage.data[5] = 0x00;
-    reset_timer = millis();
-    RELAY_RESET_STATE = RELAY_RESET_ENABLE;
-  }
-  else if (RELAY_RESET_STATE == RELAY_RESET_ENABLE && (millis() - reset_timer >= 200))
-  {
-    commandedInverterMessage.data[5] = 0x01;
-    reset_timer = millis();
-    RELAY_RESET_STATE = RELAY_RESET_DISABLE;
-  }
-  else if (RELAY_RESET_STATE == RELAY_RESET_DISABLE && (millis() - reset_timer >= 200))
-  {
-    commandedInverterMessage.data[5] = 0x00;
-    reset_timer = millis();
-    RELAY_RESET_STATE = RELAY_RESET_OFF;
-  }
-
-  if ((shutdown_circuit_toggle || ready_to_drive_toggle) && shutdown_circuit == 1 && ready_to_drive == 0)
-  {
+    can0.sendMessage(&commandedInverterMessage);
+    delay(200);
     clearFaults();
-    commandedInverterMessage.data[5] = 0x00; // Disable inverter
   }
   // Enable or disable inverter based on switch
-  if (ready_to_drive == 0)
+  if (ready_to_drive == 0 || shutdown_circuit == 0)
     commandedInverterMessage.data[5] = 0x00;
-  else if (ready_to_drive == 1)
+  else if (ready_to_drive == 1 && shutdown_circuit == 1)
     commandedInverterMessage.data[5] = 0x01;
 
   // Turn on ready to drive sound
-  if (R2DS_toggled == 0 && VSM_state >= 4)
+  if (R2DS_toggled == 0 && VSM_state >= 4 && shutdown_circuit == 1)
   {
     digitalWrite(BUZZER_OUTPUT_PIN, HIGH);
     r2dSoundStartTime = millis();
@@ -244,7 +224,6 @@ void loop()
   }
 
   // Set speed
-  // torque = map(constrain(sensor1, SIGNAL_1_MIN, SIGNAL_1_MAX), SIGNAL_1_MIN, SIGNAL_1_MAX, 0, MAX_TORQUE);
   // Take the average of both sensors and use as torque
   torque = (sg1_val + sg2_val) / 2;
   commandedInverterMessage.data[0] = (uint8_t)(torque & 0x00FF);      // Commanded torque, first
@@ -260,15 +239,13 @@ void loop()
   // Hvis out of range, short eller VCC, torque = 0
 
   // TODO add brake sensor above 25% shutdown everything
-  if (false == true)
-    if (error == true || shutdown_circuit == 0 || ready_to_drive == 0)
-    {
-      commandedInverterMessage.data[0] = 0x00; // Commanded torque, first
-      commandedInverterMessage.data[1] = 0x00; // Commanded torque, last
-      commandedInverterMessage.data[5] = 0x00; // 5.0 Inverter enable(0 off, 1 on)
-      // Serial.print("Error somewhere");
-    }
-  commandedInverterMessage.data[5] = 0x01;
+  if (error == true || shutdown_circuit == 0 || ready_to_drive == 0)
+  {
+    commandedInverterMessage.data[0] = 0x00; // Commanded torque, first
+    commandedInverterMessage.data[1] = 0x00; // Commanded torque, last
+    commandedInverterMessage.data[5] = 0x00; // 5.0 Inverter enable(0 off, 1 on)
+    // Serial.print("Error somewhere");
+  }
   // --- CAN-BUS ---
   if (millis() - tempSendTime > 100)
   {
