@@ -4,13 +4,13 @@
 // Definitions
 #define SHUTDOWN_CIRCUIT_PIN A3
 #define READY_TO_DRIVE_INPUT A2
-#define BUZZER_OUTPUT_PIN A4
+#define BUZZER_OUTPUT_PIN 7
 #define SENSOR_1_PIN A0 // Non inverted signal
 #define SENSOR_2_PIN A1 // Inverted signal
-#define SIGNAL_1_MAX 492
-#define SIGNAL_1_MIN 440
-#define SIGNAL_2_MAX 558
-#define SIGNAL_2_MIN 510
+#define SIGNAL_1_MAX 450
+#define SIGNAL_1_MIN 237
+#define SIGNAL_2_MAX 663
+#define SIGNAL_2_MIN 470
 #define MAX_TORQUE 700
 enum RELAY_RESET_MODES
 {
@@ -58,7 +58,7 @@ void clearFaults()
   clearFaultsCanFrame.data[7] = 0x00; // Not in use
   //---CAN DATA END --- //
   can0.sendMessage(&clearFaultsCanFrame);
-  Serial.print("Faults cleared");
+  // Serial.print("Faults cleared");
 }
 void setup()
 {
@@ -94,7 +94,10 @@ void setup()
 
   can0.setNormalMode();
   // pinMode(outPin, OUTPUT);       // set output to right mode
-  Serial.begin(9600);       // start monitor for values
+  Serial.begin(9600); // start monitor for values
+  Serial.println((String) "SensorData,Sensor1,Sensor2,Deviation,Signal 1 Percent,Signal 2 Percent,Signal 1 value,Signal 2 Value");
+  Serial.println("Control,Torque,VSM_State,Shutdown Circuit,Ready to Drive,Buzzer");
+
   pinMode(light, OUTPUT);   // set output for error light
   digitalWrite(light, LOW); // set light to low
   pinMode(SHUTDOWN_CIRCUIT_PIN, INPUT);
@@ -132,28 +135,7 @@ void loop()
   // Print APPS state to serial console
   if (millis() - tempSendTime > 100)
   {
-    Serial.print(analogRead(SENSOR_1_PIN));
-    Serial.print(";");
-    Serial.print(analogRead(SENSOR_2_PIN));
-    Serial.println("");
-    Serial.print("Percent total: ");
-    Serial.print(abs(sg1_percent - sg2_percent)); // print percent for inverted signal
-    Serial.print(" ");
-    Serial.print(sg1_percent); // print percent for inverted signal
-    Serial.print(" ");
-    Serial.print(sg2_percent); // print percent for inverted signal
-
-    Serial.print("          ");
-
-    Serial.print(sg1_val); // print inverted signal, inverted to normal
-    Serial.print(" and ");
-    Serial.print(sg2_val); // print non-inverted signal
-
-    Serial.print("          ");
-
-    Serial.print(sensor1);
-    Serial.print(" and ");
-    Serial.println(sensor2);
+    Serial.println((String) "SensorData," + sensor1 + "," + sensor2 + "," + abs(sg1_percent - sg2_percent) + "," + sg1_percent + "," + sg2_percent + "," + sg1_val + "," + sg2_val);
   }
   // Check if APPS is deviating more than 10%
   if (error == false)
@@ -211,7 +193,7 @@ void loop()
     commandedInverterMessage.data[5] = 0x01;
 
   // Turn on ready to drive sound
-  if (R2DS_toggled == 0 && VSM_state >= 4 && shutdown_circuit == 1)
+  if ((R2DS_toggled == 0 && VSM_state >= 4 && shutdown_circuit == 1))
   {
     digitalWrite(BUZZER_OUTPUT_PIN, HIGH);
     r2dSoundStartTime = millis();
@@ -249,13 +231,7 @@ void loop()
   // --- CAN-BUS ---
   if (millis() - tempSendTime > 100)
   {
-    Serial.print(commandedInverterMessage.data[0], HEX);
-    Serial.print(";");
-    Serial.print(commandedInverterMessage.data[1], HEX);
-    Serial.println("");
-    Serial.print("VSM State: ");
-    Serial.print(VSM_state);
-    Serial.println("");
+    Serial.println((String) "Control," + torque + "," + VSM_state + "," + shutdown_circuit + "," + ready_to_drive + "," + digitalRead(BUZZER_OUTPUT_PIN));
     can0.sendMessage(&commandedInverterMessage);
     tempSendTime = millis();
   }
