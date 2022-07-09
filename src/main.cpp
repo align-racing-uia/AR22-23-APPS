@@ -6,19 +6,22 @@
 #define READY_TO_DRIVE_INPUT A2
 #define BUZZER_OUTPUT_PIN 7
 #define BREAK_SENSOR_PIN A4
+#define BRAKELIGHT_PIN 5
+#define PUMP_PIN 3
 #define SENSOR_1_PIN A0 // Non inverted signal
 #define SENSOR_2_PIN A1 // Inverted signal
-#define SIGNAL_1_MAX 450
-#define SIGNAL_1_MIN 237
-#define SIGNAL_2_MAX 663
-#define SIGNAL_2_MIN 470
+#define SIGNAL_1_MAX 406
+#define SIGNAL_1_MIN 195
+#define SIGNAL_2_MAX 715
+#define SIGNAL_2_MIN 510
 #define MAX_TORQUE 700
 #define BITS_TO_BAR 0.122070313
 #define BITS_OFFSET -100
-
+#define APPS_CAN_ID 0x879
 // Define canbus frame
 
 struct can_frame commandedInverterMessage; // To send for one peace of data. Can be duplicated for other ID's and data
+struct can_frame APPSCanMessage;
 struct can_frame clearFaultsCanFrame;
 struct can_frame canReceive;
 MCP2515 can0(10); // Chip select
@@ -55,9 +58,10 @@ void clearFaults()
   can0.sendMessage(&clearFaultsCanFrame);
   // Serial.print("Faults cleared");
 }
-float getBrakePressure(){
+float getBrakePressure()
+{
   int bits = analogRead(BREAK_SENSOR_PIN) + BITS_OFFSET;
-  return bits * BITS_TO_BAR ;
+  return bits * BITS_TO_BAR;
 }
 void setup()
 {
@@ -73,6 +77,19 @@ void setup()
   commandedInverterMessage.data[5] = 0x00; // 5.0 Inverter enable(0 off, 1 on)
   commandedInverterMessage.data[6] = 0x00; // Not in use
   commandedInverterMessage.data[7] = 0x00; // Not in use
+  //---CAN DATA END --- //
+
+    APPSCanMessage.can_id = APPS_CAN_ID; // CANBUS ID
+  APPSCanMessage.can_dlc = 8;    // Length of the message
+  //---CAN DATA START --- //
+  APPSCanMessage.data[0] = 0x00; // Commanded torque, first
+  APPSCanMessage.data[1] = 0x00; // Commanded torque, last
+  APPSCanMessage.data[2] = 0x00; // Commanded speed, first(not used)
+  APPSCanMessage.data[3] = 0x00; // Commanded speed, last(not used)
+  APPSCanMessage.data[4] = 0x00; // Commanded direction, 0 = reverse, 1 = forward
+  APPSCanMessage.data[5] = 0x00; // 5.0 Inverter enable(0 off, 1 on)
+  APPSCanMessage.data[6] = 0x00; // Not in use
+  APPSCanMessage.data[7] = 0x00; // Not in use
   //---CAN DATA END --- //
 
   SPI.begin();
@@ -93,13 +110,15 @@ void setup()
 
   can0.setNormalMode();
   Serial.begin(9600); // start monitor for values
+  Serial.println("");
   Serial.println((String) "SensorData,Sensor1,Sensor2,Deviation,Signal 1 Percent,Signal 2 Percent,Signal 1 value,Signal 2 Value,Brake signal,Brake pressure");
-  Serial.println("Control,Torque,VSM_State,Shutdown Circuit,Ready to Drive,Buzzer");
+  Serial.println("Control,Torque,VSM_State,Shutdown Circuit,Ready to Drive,Buzzer,Error,Brake implosibility,R2DS");
 
   pinMode(SHUTDOWN_CIRCUIT_PIN, INPUT);
   pinMode(READY_TO_DRIVE_INPUT, INPUT);
   pinMode(BUZZER_OUTPUT_PIN, OUTPUT);
-}
+  pinMode(BRAKELIGHT_PIN, OUTPUT);
+} 
 
 void loop()
 {
@@ -119,10 +138,11 @@ void loop()
     {
       VSM_toggled = (VSM_state != canReceive.data[0] ? 1 : 0);
       VSM_state = canReceive.data[0];
-      R2DS_toggled = (VSM_state < 4 ? 0 : R2DS_toggled);
     }
   }
 
+  if (VSM_state < 4 || ready_to_drive == 0)
+    R2DS_toggled = 0;
   sensor1 = analogRead(SENSOR_1_PIN); // read inverted signal
   sensor2 = analogRead(SENSOR_2_PIN); // read non-inverted signal
   int sg1_val = map(constrain(sensor1, SIGNAL_1_MIN, SIGNAL_1_MAX), SIGNAL_1_MIN, SIGNAL_1_MAX, 0, MAX_TORQUE);
@@ -132,7 +152,7 @@ void loop()
   // Print APPS state to serial console
   if (millis() - tempSendTime > 100)
   {
-    Serial.println((String) "SensorData," + sensor1 + "," + sensor2 + "," + abs(sg1_percent - sg2_percent) + "," + sg1_percent + "," + sg2_percent + "," + sg1_val + "," + sg2_val + "," + analogRead(BREAK_SENSOR_PIN)+ "," + brakePressure);
+    Serial.println((String) "SensorData," + sensor1 + "," + sensor2 + "," + abs(sg1_percent - sg2_percent) + "," + sg1_percent + "," + sg2_percent + "," + sg1_val + "," + sg2_val + "," + analogRead(BREAK_SENSOR_PIN) + "," + brakePressure);
   }
   // Check if APPS is deviating more than 10%
   if (error == false)
@@ -151,11 +171,13 @@ void loop()
       firstDeviadeTime = 0;
     }
   }
+  int avgPercent = (sg1_percent + sg2_percent) / 2;
 
-  //Reset APPS
-  if(ready_to_drive_toggle && ready_to_drive == 0) {
+  // Reset APPS
+  if (ready_to_drive_toggle && ready_to_drive == 0)
+  {
     error = false;
-
+    brakeImplausibility = 0;
   }
   // --- Inverter ---
   // Turn off relays if TSMS is toggled off.
@@ -175,14 +197,14 @@ void loop()
     commandedInverterMessage.data[5] = 0x01;
 
   // Turn on ready to drive sound
-  if ((R2DS_toggled == 0 && VSM_state >= 4 && shutdown_circuit == 1 && ready_to_drive == 1))
+  if ((R2DS_toggled == 0 && ready_to_drive == 1 && avgPercent == 0 && shutdown_circuit == 1 && VSM_state >= 4))
   {
     digitalWrite(BUZZER_OUTPUT_PIN, HIGH);
     r2dSoundStartTime = millis();
     R2DS_toggled = 1;
   }
   // Turn off ready to drive sound
-  if (millis() - r2dSoundStartTime >= 1500)
+  if ((millis() - r2dSoundStartTime >= 1500) || ready_to_drive == 0)
   {
     digitalWrite(BUZZER_OUTPUT_PIN, LOW);
   }
@@ -198,25 +220,35 @@ void loop()
   ready_to_drive_toggle = 0;
   VSM_toggled = 0;
 
-  int avgPercent = (sg1_percent + sg2_percent) / 2;
   // TODO Bremsetrykk
   // Hvis over 30 bar, torque = 0
   // Hvis out of range, short eller VCC, torque = 0
-  if (brakePressure >= 30 && avgPercent >= 25) {
-    if(brakeImplausibilityTime == 0)
+  if (brakePressure >= 30 && avgPercent >= 25)
+  {
+    if (brakeImplausibilityTime == 0)
       brakeImplausibilityTime = millis();
-    else if(brakeImplausibilityTime - millis() >= 500)
+    else if (brakeImplausibilityTime - millis() >= 500)
       brakeImplausibility = 1;
   }
   else
   {
-    if(brakeImplausibility = 0 && brakeImplausibilityTime != 0)
+    if (brakeImplausibility == 1 && brakeImplausibilityTime != 0 && torque == 0)
+    {
       brakeImplausibilityTime = 0;
+      brakeImplausibility = 0;
+    }
   }
-  
+  // Bremselys
+  if (brakePressure >= 1)
+    digitalWrite(5, HIGH);
+  else
+    digitalWrite(5, LOW);
+
+    //Temp converter send R2D state
+    APPSCanMessage.data[0] = ready_to_drive;
 
   // TODO add brake sensor above 25% shutdown everything
-  if (error == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility)
+  if (error == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility || R2DS_toggled == 0)
   {
     commandedInverterMessage.data[0] = 0x00; // Commanded torque, first
     commandedInverterMessage.data[1] = 0x00; // Commanded torque, last
@@ -226,8 +258,9 @@ void loop()
   // --- CAN-BUS ---
   if (millis() - tempSendTime > 100)
   {
-    Serial.println((String) "Control," + torque + "," + VSM_state + "," + shutdown_circuit + "," + ready_to_drive + "," + digitalRead(BUZZER_OUTPUT_PIN));
+    Serial.println((String) "Control," + torque + "," + VSM_state + "," + shutdown_circuit + "," + ready_to_drive + "," + digitalRead(BUZZER_OUTPUT_PIN) + "," + error + "," + brakeImplausibility + "," + R2DS_toggled);
     can0.sendMessage(&commandedInverterMessage);
     tempSendTime = millis();
+    can0.sendMessage(&APPSCanMessage);
   }
 }
