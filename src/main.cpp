@@ -11,13 +11,13 @@
 #define SENSOR_1_PIN A0 // Non inverted signal
 #define SENSOR_2_PIN A1 // Inverted signal
 #define SIGNAL_1_MAX 406
-#define SIGNAL_1_MIN 195
-#define SIGNAL_2_MAX 715
+#define SIGNAL_1_MIN 205
+#define SIGNAL_2_MAX 708
 #define SIGNAL_2_MIN 510
 #define MAX_TORQUE 700
 #define BITS_TO_BAR 0.122070313
 #define BITS_OFFSET -100
-#define APPS_CAN_ID 0x879
+#define APPS_CAN_ID 0x179
 // Define canbus frame
 
 struct can_frame commandedInverterMessage; // To send for one peace of data. Can be duplicated for other ID's and data
@@ -79,8 +79,8 @@ void setup()
   commandedInverterMessage.data[7] = 0x00; // Not in use
   //---CAN DATA END --- //
 
-    APPSCanMessage.can_id = APPS_CAN_ID; // CANBUS ID
-  APPSCanMessage.can_dlc = 8;    // Length of the message
+  APPSCanMessage.can_id = APPS_CAN_ID; // CANBUS ID
+  APPSCanMessage.can_dlc = 8;          // Length of the message
   //---CAN DATA START --- //
   APPSCanMessage.data[0] = 0x00; // Commanded torque, first
   APPSCanMessage.data[1] = 0x00; // Commanded torque, last
@@ -102,7 +102,7 @@ void setup()
   can0.setFilterMask(MCP2515::MASK0, false, 0xFFF);
   can0.setFilterMask(MCP2515::MASK1, false, 0xFFF);
   can0.setFilter(MCP2515::RXF0, false, 0x0AA);
-  can0.setFilter(MCP2515::RXF1, false, 0x0AA);
+  can0.setFilter(MCP2515::RXF1, false, 0x0A0);
   can0.setFilter(MCP2515::RXF2, false, 0x0AA);
   can0.setFilter(MCP2515::RXF3, false, 0x0AA);
   can0.setFilter(MCP2515::RXF4, false, 0x0AA);
@@ -118,7 +118,7 @@ void setup()
   pinMode(READY_TO_DRIVE_INPUT, INPUT);
   pinMode(BUZZER_OUTPUT_PIN, OUTPUT);
   pinMode(BRAKELIGHT_PIN, OUTPUT);
-} 
+}
 
 void loop()
 {
@@ -141,7 +141,7 @@ void loop()
     }
   }
 
-  if (VSM_state < 4 || ready_to_drive == 0)
+  if (VSM_state < 4 || ready_to_drive == 0 || shutdown_circuit == 0)
     R2DS_toggled = 0;
   sensor1 = analogRead(SENSOR_1_PIN); // read inverted signal
   sensor2 = analogRead(SENSOR_2_PIN); // read non-inverted signal
@@ -197,14 +197,19 @@ void loop()
     commandedInverterMessage.data[5] = 0x01;
 
   // Turn on ready to drive sound
-  if ((R2DS_toggled == 0 && ready_to_drive == 1 && avgPercent == 0 && shutdown_circuit == 1 && VSM_state >= 4))
+  if (R2DS_toggled == 0 && ready_to_drive == 1 && avgPercent == 0 && shutdown_circuit == 1 && VSM_state >= 4 && ready_to_drive_toggle && brakePressure >= 10)
   {
-    digitalWrite(BUZZER_OUTPUT_PIN, HIGH);
     r2dSoundStartTime = millis();
     R2DS_toggled = 1;
   }
+  if ((millis() - r2dSoundStartTime >= 500) % 2 < 1)
+    digitalWrite(BUZZER_OUTPUT_PIN, HIGH);
+
+  else if ((millis() - r2dSoundStartTime >= 500) % 2 > 1)
+    digitalWrite(BUZZER_OUTPUT_PIN, LOW);
+
   // Turn off ready to drive sound
-  if ((millis() - r2dSoundStartTime >= 1500) || ready_to_drive == 0)
+  if ((millis() - r2dSoundStartTime >= 2000) || ready_to_drive == 0)
   {
     digitalWrite(BUZZER_OUTPUT_PIN, LOW);
   }
@@ -238,17 +243,21 @@ void loop()
       brakeImplausibility = 0;
     }
   }
-  // Bremselys
-  if (brakePressure >= 1)
+  // Brakelight
+  if (brakePressure >= 4)
+  {
     digitalWrite(5, HIGH);
+  }
   else
+  {
     digitalWrite(5, LOW);
+  }
 
-    //Temp converter send R2D state
-    APPSCanMessage.data[0] = ready_to_drive;
+  // Temp converter send R2D state
+  APPSCanMessage.data[0] = ready_to_drive;
 
   // TODO add brake sensor above 25% shutdown everything
-  if (error == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility || R2DS_toggled == 0)
+  if (error == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility || R2DS_toggled == 0 || millis() - r2dSoundStartTime >= 2000)
   {
     commandedInverterMessage.data[0] = 0x00; // Commanded torque, first
     commandedInverterMessage.data[1] = 0x00; // Commanded torque, last
@@ -260,7 +269,7 @@ void loop()
   {
     Serial.println((String) "Control," + torque + "," + VSM_state + "," + shutdown_circuit + "," + ready_to_drive + "," + digitalRead(BUZZER_OUTPUT_PIN) + "," + error + "," + brakeImplausibility + "," + R2DS_toggled);
     can0.sendMessage(&commandedInverterMessage);
-    tempSendTime = millis();
     can0.sendMessage(&APPSCanMessage);
+    tempSendTime = millis();
   }
 }
