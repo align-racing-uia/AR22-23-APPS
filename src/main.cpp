@@ -1,3 +1,9 @@
+
+// Rele 1 - Pin 5 
+// Rele 2 - Pin 4 : Pumpe
+// Rele 3 - Pin 3 
+// Rele 4 - Pin 2 : Bremselys
+
 #include "Arduino.h"
 #include "lib/mcp2515.h"
 
@@ -18,6 +24,7 @@
 #define BITS_TO_BAR 0.122070313
 #define BITS_OFFSET -100
 #define APPS_CAN_ID 0x179
+#define AMS_LIGHT_RELAY 2
 // Define canbus frame
 
 struct can_frame commandedInverterMessage; // To send for one peace of data. Can be duplicated for other ID's and data
@@ -118,6 +125,7 @@ void setup()
   pinMode(READY_TO_DRIVE_INPUT, INPUT);
   pinMode(BUZZER_OUTPUT_PIN, OUTPUT);
   pinMode(BRAKELIGHT_PIN, OUTPUT);
+  pinMode(AMS_LIGHT_RELAY, OUTPUT);
 }
 
 void loop()
@@ -256,8 +264,15 @@ void loop()
   // Temp converter send R2D state
   APPSCanMessage.data[0] = ready_to_drive;
 
+  if(millis() <= 2000){
+    digitalWrite(AMS_LIGHT_RELAY, HIGH);
+  }
+  else{
+  digitalWrite(AMS_LIGHT_RELAY, LOW);
+  }
+
   // TODO add brake sensor above 25% shutdown everything
-  if (error == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility || R2DS_toggled == 0 || millis() - r2dSoundStartTime >= 2000)
+  if (error == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility == 1 || R2DS_toggled == 0 || millis() - r2dSoundStartTime <= 2000)
   {
     commandedInverterMessage.data[0] = 0x00; // Commanded torque, first
     commandedInverterMessage.data[1] = 0x00; // Commanded torque, last
