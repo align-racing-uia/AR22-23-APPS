@@ -1,8 +1,8 @@
 
-// Rele 1 - Pin 5 
-// Rele 2 - Pin 4 : Pumpe
-// Rele 3 - Pin 3 
-// Rele 4 - Pin 2 : Bremselys
+// Rele 1 - Pin 5 : Bremselys
+// Rele 2 - Pin 4 : Vifte
+// Rele 3 - Pin 3 : Pumpe
+// Rele 4 - Pin 2 : AMS test relay
 
 #include "Arduino.h"
 #include "lib/mcp2515.h"
@@ -10,21 +10,22 @@
 // Definitions
 #define SHUTDOWN_CIRCUIT_PIN A3
 #define READY_TO_DRIVE_INPUT A2
-#define BUZZER_OUTPUT_PIN 7
 #define BREAK_SENSOR_PIN A4
-#define BRAKELIGHT_PIN 5
+#define AMS_LIGHT_RELAY 2
 #define PUMP_PIN 3
+#define FAN_PIN 4
+#define BRAKELIGHT_PIN 5
+#define BUZZER_OUTPUT_PIN 7
 #define SENSOR_1_PIN A0 // Non inverted signal
 #define SENSOR_2_PIN A1 // Inverted signal
-#define SIGNAL_1_MAX 406
-#define SIGNAL_1_MIN 205
-#define SIGNAL_2_MAX 708
-#define SIGNAL_2_MIN 510
-#define MAX_TORQUE 700
+#define SIGNAL_1_MAX 480
+#define SIGNAL_1_MIN 260
+#define SIGNAL_2_MAX 650
+#define SIGNAL_2_MIN 440
+#define MAX_TORQUE 1200
 #define BITS_TO_BAR 0.122070313
 #define BITS_OFFSET -100
 #define APPS_CAN_ID 0x179
-#define AMS_LIGHT_RELAY 2
 // Define canbus frame
 
 struct can_frame commandedInverterMessage; // To send for one peace of data. Can be duplicated for other ID's and data
@@ -118,13 +119,15 @@ void setup()
   can0.setNormalMode();
   Serial.begin(9600); // start monitor for values
   Serial.println("");
-  Serial.println((String) "SensorData,Sensor1,Sensor2,Deviation,Signal 1 Percent,Signal 2 Percent,Signal 1 value,Signal 2 Value,Brake signal,Brake pressure");
+  Serial.println((String) "SensorData,Sensor1,Sensor2,Deviation,Signal 1 Percent,Signal 2 Percent,Signal 1 value,Signal 2 Value,Brake signal,Brake pressure, V1, V2");
   Serial.println("Control,Torque,VSM_State,Shutdown Circuit,Ready to Drive,Buzzer,Error,Brake implosibility,R2DS");
 
   pinMode(SHUTDOWN_CIRCUIT_PIN, INPUT);
   pinMode(READY_TO_DRIVE_INPUT, INPUT);
   pinMode(BUZZER_OUTPUT_PIN, OUTPUT);
   pinMode(BRAKELIGHT_PIN, OUTPUT);
+  pinMode(PUMP_PIN, OUTPUT);
+  pinMode(FAN_PIN, OUTPUT);
   pinMode(AMS_LIGHT_RELAY, OUTPUT);
 }
 
@@ -160,7 +163,7 @@ void loop()
   // Print APPS state to serial console
   if (millis() - tempSendTime > 100)
   {
-    Serial.println((String) "SensorData," + sensor1 + "," + sensor2 + "," + abs(sg1_percent - sg2_percent) + "," + sg1_percent + "," + sg2_percent + "," + sg1_val + "," + sg2_val + "," + analogRead(BREAK_SENSOR_PIN) + "," + brakePressure);
+    Serial.println((String) "SensorData," + sensor1 + "," + sensor2 + "," + abs(sg1_percent - sg2_percent) + "," + sg1_percent + "," + sg2_percent + "," + sg1_val + "," + sg2_val + "," + analogRead(BREAK_SENSOR_PIN) + "," + brakePressure + "," + sensor1 * 0.00488758553274682 + "," + sensor2 * 0.00488758553274682);
   }
   // Check if APPS is deviating more than 10%
   if (error == false)
@@ -228,6 +231,10 @@ void loop()
   commandedInverterMessage.data[0] = (uint8_t)(torque & 0x00FF);      // Commanded torque, first
   commandedInverterMessage.data[1] = (uint8_t)((torque >> 8) & 0xFF); // Commanded torque, last
 
+
+
+
+
   // Toggle off
   shutdown_circuit_toggle = 0;
   ready_to_drive_toggle = 0;
@@ -264,13 +271,35 @@ void loop()
   // Temp converter send R2D state
   APPSCanMessage.data[0] = ready_to_drive;
 
+  APPSCanMessage.data[1] = (uint8_t)((int)(brakePressure * 10) & 0x00FF);      // Commanded torque, first
+  APPSCanMessage.data[2] = (uint8_t)(((int)(brakePressure * 10) >> 8) & 0xFF); // Commanded torque, last
+
+  APPSCanMessage.data[3] = (uint8_t)((int)(sensor1)&0x00FF);        // Commanded torque, first
+  APPSCanMessage.data[4] = (uint8_t)(((int)(sensor1) >> 8) & 0xFF); // Commanded torque, last
+
+  APPSCanMessage.data[5] = (uint8_t)((int)(sensor2)&0x00FF);        // Commanded torque, first
+  APPSCanMessage.data[6] = (uint8_t)(((int)(sensor2) >> 8) & 0xFF); // Commanded torque, last
+
+  APPSCanMessage.data[7] = shutdown_circuit;
+
+  // AMS light working test
   if(millis() <= 2000){
     digitalWrite(AMS_LIGHT_RELAY, HIGH);
   }
   else{
-  digitalWrite(AMS_LIGHT_RELAY, LOW);
+    digitalWrite(AMS_LIGHT_RELAY, LOW);
   }
 
+  // Fan controller
+  if(ready_to_drive  == 1) {
+    digitalWrite(FAN_PIN, LOW);
+    digitalWrite(PUMP_PIN, LOW);
+  }
+  else{
+    digitalWrite(FAN_PIN, HIGH);
+    digitalWrite(PUMP_PIN, HIGH);
+
+  }
   // TODO add brake sensor above 25% shutdown everything
   if (error == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility == 1 || R2DS_toggled == 0 || millis() - r2dSoundStartTime <= 2000)
   {
