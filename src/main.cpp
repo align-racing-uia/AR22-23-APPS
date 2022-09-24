@@ -40,9 +40,9 @@ int sensor1;                    // declare reading for inverted signal
 int sensor2;                    // declare reading for non-inverted signal
 unsigned long previousTime = 0; // declare time before each iteration
 unsigned long firstDeviadeTime = 0;
-bool error = false;            // declare ERROR value to default = false
+bool deviation = false;            // declare ERROR value to default = false
 unsigned long currentTime = 0; // declare timer
-const int light = 13;          // declare error light
+const int light = 13;          // declare deviation light
 int torque = 0;
 unsigned long tempSendTime, reset_timer = 0, r2dSoundStartTime, brakeImplausibilityTime;
 int shutdown_circuit_toggle, shutdown_circuit = 0, ready_to_drive_toggle, ready_to_drive, R2DS_toggled = 0, VSM_state = 0, VSM_toggled = 0;
@@ -120,7 +120,7 @@ void setup()
   Serial.begin(9600); // start monitor for values
   Serial.println("");
   Serial.println((String) "SensorData,Sensor1,Sensor2,Deviation,Signal 1 Percent,Signal 2 Percent,Signal 1 value,Signal 2 Value,Brake signal,Brake pressure, V1, V2");
-  Serial.println("Control,Torque,VSM_State,Shutdown Circuit,Ready to Drive,Buzzer,Error,Brake implosibility,R2DS");
+  Serial.println("Control,Torque,VSM_State,Shutdown Circuit,Ready to Drive,Buzzer,Deviation,Brake implosibility,R2DS");
 
   pinMode(SHUTDOWN_CIRCUIT_PIN, INPUT);
   pinMode(READY_TO_DRIVE_INPUT, INPUT);
@@ -166,7 +166,7 @@ void loop()
     Serial.println((String) "SensorData," + sensor1 + "," + sensor2 + "," + abs(sg1_percent - sg2_percent) + "," + sg1_percent + "," + sg2_percent + "," + sg1_val + "," + sg2_val + "," + analogRead(BREAK_SENSOR_PIN) + "," + brakePressure + "," + sensor1 * 0.00488758553274682 + "," + sensor2 * 0.00488758553274682);
   }
   // Check if APPS is deviating more than 10%
-  if (error == false)
+  if (deviation == false)
   {
     if ((abs(sg2_percent - sg1_percent) > 10))
     { // check if difference between signals is more than 10%, do this:
@@ -174,7 +174,7 @@ void loop()
         firstDeviadeTime = millis();
       if (millis() - firstDeviadeTime > 100)
       {               // if they deviate for more than 100 ms:
-        error = true; // set ERROR to true
+        deviation = true; // set ERROR to true
       }
     }
     else
@@ -187,12 +187,12 @@ void loop()
   // Reset APPS
   if (ready_to_drive_toggle && ready_to_drive == 0)
   {
-    error = false;
+    deviation = false;
     brakeImplausibility = 0;
   }
   // --- Inverter ---
   // Turn off relays if TSMS is toggled off.
-  // Reset relays if error has occured during precharge
+  // Reset relays if deviation has occured during precharge
   if ((shutdown_circuit_toggle || ready_to_drive_toggle) && shutdown_circuit == 1 && ready_to_drive == 0 && VSM_state == 7)
   {
     // Disable inverter
@@ -232,9 +232,6 @@ void loop()
   commandedInverterMessage.data[1] = (uint8_t)((torque >> 8) & 0xFF); // Commanded torque, last
 
 
-
-
-
   // Toggle off
   shutdown_circuit_toggle = 0;
   ready_to_drive_toggle = 0;
@@ -269,18 +266,23 @@ void loop()
   }
 
   // Temp converter send R2D state
-  APPSCanMessage.data[0] = ready_to_drive;
+  uint8_t states = ready_to_drive;
+  states = (states << 1 ) + shutdown_circuit;
+  states = (states << 1 ) + brakeImplausibility;
+  states = (states << 1 ) + deviation;
+  states = (states << 4);
+  APPSCanMessage.data[0] = states;
+  
 
-  APPSCanMessage.data[1] = (uint8_t)((int)(brakePressure * 10) & 0x00FF);      // Commanded torque, first
-  APPSCanMessage.data[2] = (uint8_t)(((int)(brakePressure * 10) >> 8) & 0xFF); // Commanded torque, last
+  APPSCanMessage.data[1] = (uint8_t)((int)(brakePressure * 10) & 0x00FF);      // Brake pressure, first
+  APPSCanMessage.data[2] = (uint8_t)(((int)(brakePressure * 10) >> 8) & 0xFF); // Brake pressure, last
 
-  APPSCanMessage.data[3] = (uint8_t)((int)(sensor1)&0x00FF);        // Commanded torque, first
-  APPSCanMessage.data[4] = (uint8_t)(((int)(sensor1) >> 8) & 0xFF); // Commanded torque, last
+  APPSCanMessage.data[3] = (uint8_t)((int)(sensor1)&0x00FF);        // Analog input sensor 1, first
+  APPSCanMessage.data[4] = (uint8_t)(((int)(sensor1) >> 8) & 0xFF); // Analog input sensor 1, last
 
-  APPSCanMessage.data[5] = (uint8_t)((int)(sensor2)&0x00FF);        // Commanded torque, first
-  APPSCanMessage.data[6] = (uint8_t)(((int)(sensor2) >> 8) & 0xFF); // Commanded torque, last
+  APPSCanMessage.data[5] = (uint8_t)((int)(sensor2)&0x00FF);        // Analog input sensor 2, first
+  APPSCanMessage.data[6] = (uint8_t)(((int)(sensor2) >> 8) & 0xFF); // Analog input sensor 2, last
 
-  APPSCanMessage.data[7] = shutdown_circuit;
 
   // AMS light working test
   if(millis() <= 2000){
@@ -301,7 +303,7 @@ void loop()
 
   }
   // TODO add brake sensor above 25% shutdown everything
-  if (error == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility == 1 || R2DS_toggled == 0 || millis() - r2dSoundStartTime <= 2000)
+  if (deviation == true || shutdown_circuit == 0 || ready_to_drive == 0 || brakeImplausibility == 1 || R2DS_toggled == 0 || millis() - r2dSoundStartTime <= 2000)
   {
     commandedInverterMessage.data[0] = 0x00; // Commanded torque, first
     commandedInverterMessage.data[1] = 0x00; // Commanded torque, last
@@ -311,7 +313,7 @@ void loop()
   // --- CAN-BUS ---
   if (millis() - tempSendTime > 100)
   {
-    Serial.println((String) "Control," + torque + "," + VSM_state + "," + shutdown_circuit + "," + ready_to_drive + "," + digitalRead(BUZZER_OUTPUT_PIN) + "," + error + "," + brakeImplausibility + "," + R2DS_toggled);
+    Serial.println((String) "Control," + torque + "," + VSM_state + "," + shutdown_circuit + "," + ready_to_drive + "," + digitalRead(BUZZER_OUTPUT_PIN) + "," + deviation + "," + brakeImplausibility + "," + R2DS_toggled);
     can0.sendMessage(&commandedInverterMessage);
     can0.sendMessage(&APPSCanMessage);
     tempSendTime = millis();
