@@ -277,12 +277,11 @@ void loop()
   APPSCanMessage.data[1] = (uint8_t)((int)(brakePressure * 10) & 0x00FF);      // Brake pressure, first
   APPSCanMessage.data[2] = (uint8_t)(((int)(brakePressure * 10) >> 8) & 0xFF); // Brake pressure, last
 
-  APPSCanMessage.data[3] = (uint8_t)((int)(sensor1)&0x00FF);        // Analog input sensor 1, first
-  APPSCanMessage.data[4] = (uint8_t)(((int)(sensor1) >> 8) & 0xFF); // Analog input sensor 1, last
+  APPSCanMessage.data[3] = sg1_percent; // Analog input sensor 1, first
+  APPSCanMessage.data[4] = sg2_percent; // Analog input sensor 1, last
 
-  APPSCanMessage.data[5] = (uint8_t)((int)(sensor2)&0x00FF);        // Analog input sensor 2, first
-  APPSCanMessage.data[6] = (uint8_t)(((int)(sensor2) >> 8) & 0xFF); // Analog input sensor 2, last
-
+  // APPSCanMessage.data[5] = (uint8_t)((int)(sensor2)&0x00FF);        // Analog input sensor 2, first
+  // APPSCanMessage.data[6] = (uint8_t)(((int)(sensor2) >> 8) & 0xFF); // Analog input sensor 2, last
 
   // AMS light working test
   if(millis() <= 2000){
@@ -315,7 +314,7 @@ void loop()
   {
     Serial.println((String) "Control," + torque + "," + VSM_state + "," + shutdown_circuit + "," + ready_to_drive + "," + digitalRead(BUZZER_OUTPUT_PIN) + "," + deviation + "," + brakeImplausibility + "," + R2DS_toggled);
     can0.sendMessage(&commandedInverterMessage);
-    can0.sendMessage(&APPSCanMessage);
+    can0.sendMessage(MCP2515::TXB1, &APPSCanMessage);
     tempSendTime = millis();
   }
 }
