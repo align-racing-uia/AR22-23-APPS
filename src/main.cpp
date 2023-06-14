@@ -100,10 +100,18 @@ float get_brake_pressure(int analogPin) {
   float Sensitivity = 4000 / 2000; // 4000 mV / 2000 psi
 
   pressure = analogRead(analogPin);
+  if(pressure < 5/1024 * 0.4){
+    pressureMBAR = 100;
+    encoder_fault = true;
+  }
   pressureVDC = (float)pressure * 0.0048828125; // (5/1024 = 0.0048...)
   pressureVDC = pressureVDC - NullVDC;
   pressurePSI = pressureVDC / Sensitivity * 1000; // (VDC*1000 = mV)  / (mV / PSI)
-  pressureMBAR = pressurePSI * 68.948;
+  pressureMBAR = pressurePSI * 0.068948;
+
+  if(pressureMBAR < 0){
+    pressureMBAR = 0;
+  }
 
   return pressureMBAR;
 }
@@ -220,6 +228,8 @@ void setup() {
   pinMode(CAN_CS, OUTPUT);
   pinMode(ENC1_CS, OUTPUT);
   pinMode(ENC2_CS, OUTPUT);
+  pinMode(BP1, INPUT);
+  pinMode(BP2, INPUT);
   digitalWrite(CAN_CS, HIGH);
 
   // Setting the interrupt pin for the mcp2515
@@ -273,7 +283,7 @@ void loop() {
   shutdown_circuit = digitalRead(SDC);
 
   brakePressure1 = get_brake_pressure(BP1);
-  brakePressure2 = get_brake_pressure(BP2);
+  brakePressure2 = brakePressure1; // TODO: CHANGE TO BP2
 
   if(brakePressure1 > 3) {
     brakelight = true;
@@ -351,7 +361,7 @@ void loop() {
 
   // Check if ready to drive should be enabled:
   if (!ready_to_drive){
-    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch){
+    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && (brakePressure1 > 10 || brakePressure2 > 10)){
       inverter_clear_faults();
       ready_to_drive = true;
     }
