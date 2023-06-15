@@ -408,8 +408,8 @@ void loop() {
       
     }
 
-    canFrame[4] = encoderPosition1;
-    canFrame[5] = encoderPosition2;
+    canFrame[4] = sg_percentage1;
+    canFrame[5] = sg_percentage1;
 
     canFrame[6] = (int) brakePressure1;
     canFrame[7] = (int) brakePressure2;
@@ -424,7 +424,7 @@ void loop() {
 
 
     // Send canbus frame:
-    can_tx(APPS_BROADCAST_ID, 6, canFrame);
+    can_tx(APPS_BROADCAST_ID, 8 , canFrame);
 
     broadcast_timestamp = millis();
     Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
