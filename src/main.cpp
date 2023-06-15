@@ -414,7 +414,7 @@ void loop() {
     canFrame[6] = (int) brakePressure1;
     canFrame[7] = (int) brakePressure2;
 
-    canFrame[3] = brakeImplausibility;
+    canFrame[3] = brakeImplausibility << 6;
     canFrame[3] |= encoder_fault << 5;
     canFrame[3] |= brakelight << 4;
     canFrame[3] |= shutdown_circuit << 3;
