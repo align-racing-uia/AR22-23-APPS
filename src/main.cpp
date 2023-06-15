@@ -18,6 +18,7 @@
 #define SPI_SCLK 13
 
 #define APPS_TRAVEL 210.0 // Degrees x 10^(-1)
+#define APPS_TRAVEL_USABLE 200.0 // Degrees x 10^(-1)
 
 // ID for default broadcasting of R2D state, and pedal pressures.
 #define APPS_BROADCAST_ID 0x0E1
@@ -172,8 +173,8 @@ void calibrate_apps(){
   if(encoder_fault){
     return;
   }
-  encoder1_min = encoderPosition1;
-  encoder2_max = encoderPosition2;
+  encoder1_min = encoderPosition1 + APPS_TRAVEL * 0.1;
+  encoder2_max = encoderPosition2 - APPS_TRAVEL * 0.1;
 }
 
 // This is important!
@@ -215,9 +216,6 @@ void inverter_clear_faults() {
   byte clearFaultData[8] = {0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};
   can_tx(INV_CLF_ID, 8, clearFaultData);
 }
-
-
-
 
 void setup() {
 
@@ -308,8 +306,8 @@ void loop() {
   }
 
   // Calculating percentage of full pedal travel
-  int sg_percentage1 = sensor1 / APPS_TRAVEL * 100;
-  int sg_percentage2 = sensor2 / APPS_TRAVEL * 100;
+  int sg_percentage1 = sensor1 / APPS_TRAVEL_USABLE * 100;
+  int sg_percentage2 = sensor2 / APPS_TRAVEL_USABLE * 100;
 
   // To make sure we do not have a misread on one sensor, and that the car drives, when the pedal is in the zero position,
   // We take the minimum value of the pedal percentages.
