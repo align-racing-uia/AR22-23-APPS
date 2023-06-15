@@ -135,6 +135,7 @@ void read_apps_sensors() {
     }
     if(faults>=3){
       encoder_fault = true;
+      deviation_error = true;
       return;
     }
   }
