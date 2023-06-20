@@ -75,9 +75,16 @@ bool shutdown_circuit = false;
 bool encoder_fault = false;
 bool brakelight = false;
 bool brakeImplausibility = false;
+bool inverter_enable_lockout = false;
+
+// VSM State
+uint16_t vsm_state = 0;
 
 // Watchdog timer for R2D switch
 unsigned long r2d_timestamp = 0;
+
+// Lockout timestamp for reset.
+unsigned long lockout_timestamp = 0;
 
 // Deviation timestamp, to check if it lasts more than 100ms
 unsigned long deviation_timestamp = 0;
@@ -167,6 +174,10 @@ void can_rx() {
     ready_to_drive_switch = 0x1 & rxBuf[0];
     break;
   
+  case 0x0AA:
+    vsm_state = rxBuf[0];
+    inverter_enable_lockout = 0x80 & rxBuf[6];
+    break;
   default:
     return;
   }
@@ -201,6 +212,26 @@ void inverter_command(int throttle) {
 
   // Byte 5, bit 1 is inverter enable, which it should be if we are ready to drive.
   commandData[5] = ready_to_drive;
+
+  // Kind of a bugfix.
+  // The current inverter sometimes goes into Inverter Enable lockout mode after power cycling.
+  // And it wont reset unless we cycle inverter enable at least once.
+  if(inverter_enable_lockout){
+    if(lockout_timestamp == 0){
+      lockout_timestamp = millis();
+    }
+
+    if(millis() - lockout_timestamp < 100){
+      commandData[5] = true;
+    }else if(millis() - lockout_timestamp < 300){
+      commandData[5] = false;
+    }else{
+      lockout_timestamp = 0;
+    }
+
+  }else{
+    lockout_timestamp = 0;
+  }
 
   commandData[6] = MAX_TORQUE & 0x00FF;
   commandData[7] = (MAX_TORQUE >> 8) & 0xFF;
@@ -273,6 +304,7 @@ void setup() {
   // e.g. R2D. This puts less strain on the arduino.
   CAN0.init_Mask(0, 0x03FF);
   CAN0.init_Filt(0, 0x00E0);
+  CAN0.init_Filt(0, 0x00AA);
 
   // Set the MCP2515 into normal mode.
   CAN0.setMode(MCP_NORMAL);
@@ -286,9 +318,9 @@ void loop() {
   shutdown_circuit = digitalRead(SDC);
 
   brakePressure1 = get_brake_pressure(BP1);
-  brakePressure2 = brakePressure1; // TODO: CHANGE TO BP2
+  brakePressure2 = get_brake_pressure(BP2); // TODO: CHANGE TO BP2
 
-  if(brakePressure1 > 3) {
+  if(brakePressure1 > 4 || brakePressure2 > 4) {
     brakelight = true;
   }else{
     brakelight = false;
@@ -365,12 +397,15 @@ void loop() {
   // Check if ready to drive should be enabled:
   if (!ready_to_drive){
     if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && (brakePressure1 > 10 || brakePressure2 > 10)){
-      inverter_clear_faults();
-      ready_to_drive = true;
+      if(vsm_state < 4 || vsm_state > 7){
+        inverter_clear_faults();
+      }else{
+        ready_to_drive = true;
+      }
     }
   }
 
-  if (!shutdown_circuit || !ready_to_drive_switch || encoder_fault){
+  if (!shutdown_circuit || !ready_to_drive_switch || encoder_fault || vsm_state < 4 || vsm_state > 7){
     ready_to_drive = false;
   }
 
@@ -392,6 +427,7 @@ void loop() {
     // Prepare canbus frame:
     // Byte 1 is the pedal position, in a percentage
     // Byte 2 is the commanded torque as a integer
+    // Byte 3 is VSM state, from the APPS perspective
     // Byte 4 holds some states, with each bit meaning this: 0bABCDEFGH
     // B - Implausibility 
     // C - Encoder fault
@@ -410,6 +446,8 @@ void loop() {
       canFrame[1] = (int) round((((double) throttle_signal / 100.0) * MAX_TORQUE) / 10.0);
       
     }
+
+    canFrame[2] = vsm_state;
 
     canFrame[4] = sg_percentage1;
     canFrame[5] = sg_percentage1;
