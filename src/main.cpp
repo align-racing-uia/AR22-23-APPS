@@ -18,6 +18,7 @@
 #define SPI_SCLK 13
 
 #define APPS_TRAVEL 210.0 // Degrees x 10^(-1)
+#define APPS_TRAVEL_USABLE 205.0 // Degrees x 10^(-1)
 
 // ID for default broadcasting of R2D state, and pedal pressures.
 #define APPS_BROADCAST_ID 0x0E1
@@ -44,6 +45,11 @@ AMT22* Encoder1;
 AMT22* Encoder2;
 uint16_t encoderPosition1;
 uint16_t encoderPosition2;
+
+
+// CONFIG VARIABLES:
+float apps_deadzone = 0.02;
+
 
 // SPI settings for the APPS sensors:
 // SPI mode 0
@@ -134,6 +140,7 @@ void read_apps_sensors() {
     }
     if(faults>=3){
       encoder_fault = true;
+      deviation_error = true;
       return;
     }
   }
@@ -172,8 +179,8 @@ void calibrate_apps(){
   if(encoder_fault){
     return;
   }
-  encoder1_min = encoderPosition1;
-  encoder2_max = encoderPosition2;
+  encoder1_min = encoderPosition1 + APPS_TRAVEL * apps_deadzone;
+  encoder2_max = encoderPosition2 - APPS_TRAVEL * apps_deadzone;
 }
 
 // This is important!
@@ -215,9 +222,6 @@ void inverter_clear_faults() {
   byte clearFaultData[8] = {0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};
   can_tx(INV_CLF_ID, 8, clearFaultData);
 }
-
-
-
 
 void setup() {
 
@@ -308,8 +312,8 @@ void loop() {
   }
 
   // Calculating percentage of full pedal travel
-  int sg_percentage1 = sensor1 / APPS_TRAVEL * 100;
-  int sg_percentage2 = sensor2 / APPS_TRAVEL * 100;
+  int sg_percentage1 = sensor1 / (APPS_TRAVEL * (1.0 - apps_deadzone)) * 100;
+  int sg_percentage2 = sensor2 / (APPS_TRAVEL * (1.0 - apps_deadzone)) * 100;
 
   // To make sure we do not have a misread on one sensor, and that the car drives, when the pedal is in the zero position,
   // We take the minimum value of the pedal percentages.
@@ -427,7 +431,7 @@ void loop() {
     can_tx(APPS_BROADCAST_ID, 8 , canFrame);
 
     broadcast_timestamp = millis();
-    Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
+    // Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
     // Serial.println("Sensor 1%: " + String(sg_percentage1) + ", Sensor 2%: " + String(sg_percentage2));
     // Serial.println("Throttle %: " + String(canbus_signal));
   }
