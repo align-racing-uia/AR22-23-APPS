@@ -397,7 +397,7 @@ void loop() {
   // Check if ready to drive should be enabled:
   if (!ready_to_drive){
     if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && (brakePressure1 > 10 || brakePressure2 > 10)){
-      if(vsm_state < 4 || vsm_state > 7){
+      if(vsm_state < 4 || vsm_state > 6){
         inverter_clear_faults();
       }else{
         ready_to_drive = true;
@@ -405,7 +405,7 @@ void loop() {
     }
   }
 
-  if (!shutdown_circuit || !ready_to_drive_switch || encoder_fault || vsm_state < 4 || vsm_state > 7){
+  if (!shutdown_circuit || !ready_to_drive_switch || encoder_fault || vsm_state < 4 || vsm_state > 6){
     ready_to_drive = false;
   }
 
