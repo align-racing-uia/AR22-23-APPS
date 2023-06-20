@@ -18,7 +18,6 @@
 #define SPI_SCLK 13
 
 #define APPS_TRAVEL 210.0 // Degrees x 10^(-1)
-#define APPS_TRAVEL_USABLE 205.0 // Degrees x 10^(-1)
 
 // ID for default broadcasting of R2D state, and pedal pressures.
 #define APPS_BROADCAST_ID 0x0E1
