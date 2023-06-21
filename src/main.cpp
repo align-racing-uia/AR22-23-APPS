@@ -227,6 +227,7 @@ void inverter_command(int throttle) {
       commandData[5] = false;
     }else{
       lockout_timestamp = 0;
+      inverter_enable_lockout = false;
     }
 
   }else{
