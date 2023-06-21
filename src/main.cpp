@@ -17,7 +17,7 @@
 #define SPI_MISO 12
 #define SPI_SCLK 13
 
-#define APPS_TRAVEL 210.0 // Degrees x 10^(-1)
+#define APPS_TRAVEL 205.0 // Degrees x 10^(-1)
 
 // ID for default broadcasting of R2D state, and pedal pressures.
 #define APPS_BROADCAST_ID 0x0E1
@@ -343,8 +343,8 @@ void loop() {
   }
 
   // Calculating percentage of full pedal travel
-  int sg_percentage1 = sensor1 / (APPS_TRAVEL * (1.0 - apps_deadzone)) * 100;
-  int sg_percentage2 = sensor2 / (APPS_TRAVEL * (1.0 - apps_deadzone)) * 100;
+  int sg_percentage1 = constrain(sensor1 / (APPS_TRAVEL * (1.0 - apps_deadzone)) * 100, 0, 100);
+  int sg_percentage2 = constrain(sensor2 / (APPS_TRAVEL * (1.0 - apps_deadzone)) * 100, 0, 100);
 
   // To make sure we do not have a misread on one sensor, and that the car drives, when the pedal is in the zero position,
   // We take the minimum value of the pedal percentages.
@@ -373,7 +373,7 @@ void loop() {
     deviation_timestamp = 0;
   }
 
-  if(brakePressure1 >= 30 || brakePressure2 >= 30 && throttle_signal >= 25) {
+  if((brakePressure1 >= 30 || brakePressure2 >= 30) && throttle_signal >= 25) {
     if(brakeImplausibility_timestamp == 0){
       brakeImplausibility_timestamp = millis();
     }else if(brakeImplausibility_timestamp - millis() >= 500){
@@ -382,7 +382,7 @@ void loop() {
     }
     
   }else{
-    if(brakeImplausibility = true && brakeImplausibility_timestamp != 0 && throttle_signal == 0){
+    if(brakeImplausibility == true && brakeImplausibility_timestamp != 0 && throttle_signal == 0){
       brakeImplausibility = false;
       brakeImplausibility_timestamp = 0;
     }
@@ -472,6 +472,4 @@ void loop() {
     // Serial.println("Sensor 1%: " + String(sg_percentage1) + ", Sensor 2%: " + String(sg_percentage2));
     // Serial.println("Throttle %: " + String(canbus_signal));
   }
-
-
 }
