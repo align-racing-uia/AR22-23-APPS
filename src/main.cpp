@@ -36,7 +36,7 @@
 #define SDC_OPEN_ID1 0x0B0
 #define SDC_OPEN_ID2 0x0B1
 
-#define MAX_TORQUE 2150 // Nm * 10
+#define MAX_TORQUE 2220 // Nm * 10
 #define BUZZER_DURATION 3 // seconds
 
 MCP_CAN CAN0(CAN_CS);
@@ -47,7 +47,7 @@ uint16_t encoderPosition2;
 
 
 // CONFIG VARIABLES:
-float apps_deadzone = 0.02;
+float apps_deadzone = 0.04;
 
 
 // SPI settings for the APPS sensors:
