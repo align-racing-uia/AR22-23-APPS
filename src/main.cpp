@@ -113,18 +113,18 @@ unsigned char rxBuf[8];
 
 int get_max_torque(){
 
-  if(motor_speed < 4500) {
+  if(motor_speed < 3100) {
     return MAX_TORQUE;
   }
 
-  // We withdraw up to 30Nm of torque, from 4500RPM and onwards.
-  return MAX_TORQUE - (int) (30.0 * ((float)(motor_speed % 4500) / 700.0));
+  if(motor_speed < 4200) {
+    return MAX_TORQUE - (int) (60.0 * ((float)(motor_speed % 3100) / 1100.0));
+  }
+
+  return 170 - (int) (45.0 * ((float)(motor_speed % 4200) / 1300.0));
 
 }
 
-int simple_pid_loop(){
-
-}
 
 float get_brake_pressure(int analogPin) {
   float pressurePSI, pressureMBAR, pressureVDC;
@@ -225,7 +225,7 @@ void inverter_command(int throttle) {
 
   // First 2 bytes are used for torque.
   if (ready_to_drive){
-    int torque = (int) round(((double)throttle)/100.0 * MAX_TORQUE);
+    int torque = (int) round(((double)throttle)/100.0 * get_max_torque());
     commandData[0] = torque & 0x00FF;
     commandData[1] = (torque >> 8) & 0xFF;
   }
