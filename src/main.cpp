@@ -99,11 +99,32 @@ unsigned long broadcast_timestamp = 0;
 
 unsigned long command_timestamp = 0;
 
+// Motor speed, for torque modulation
+unsigned int motor_speed = 0; // RPM
+
+unsigned int motor_feedback_torque = 0; // TODO: Implement
+
+
 // CANBUS read variables
 long unsigned int rxId;
 unsigned char rxLen = 0;
 unsigned char rxBuf[8];
 
+
+int get_max_torque(){
+
+  if(motor_speed < 4500) {
+    return MAX_TORQUE;
+  }
+
+  // We withdraw up to 30Nm of torque, from 4500RPM and onwards.
+  return MAX_TORQUE - (int) (30.0 * ((float)(motor_speed % 4500) / 700.0));
+
+}
+
+int simple_pid_loop(){
+
+}
 
 float get_brake_pressure(int analogPin) {
   float pressurePSI, pressureMBAR, pressureVDC;
@@ -178,6 +199,11 @@ void can_rx() {
     vsm_state = rxBuf[0];
     inverter_enable_lockout = 0x80 & rxBuf[6];
     break;
+  case 0x0A5:
+    motor_speed = rxBuf[2] << 8;
+    motor_speed |= rxBuf[1];
+    break;
+  
   default:
     return;
   }
