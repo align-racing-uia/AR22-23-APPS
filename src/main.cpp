@@ -17,7 +17,7 @@
 #define SPI_MISO 12
 #define SPI_SCLK 13
 
-#define APPS_TRAVEL 105.0 // Resolution of 1024 bit ADC
+#define APPS_TRAVEL 78.0 // Resolution of 1024 bit ADC
 
 // ID for default broadcasting of R2D state, and pedal pressures.
 #define APPS_BROADCAST_ID 0x0E1
@@ -65,10 +65,10 @@ float apps_deadzone = 0.04;
 SPISettings settings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
 
 // Encoder 1 is a non inverted signal.
-uint16_t sensor1_min = 100;
+uint16_t sensor1_min = 691;
 
 // Encoder 2 is a inverted signal.
-uint16_t sensor2_max = 500;
+uint16_t sensor2_max = 374;
 
 // Brake pressure variables:
 float brakePressure1, brakePressure2;
@@ -83,6 +83,7 @@ bool encoder_fault = false;
 bool brakelight = false;
 bool brakeImplausibility = false;
 bool inverter_enable_lockout = false;
+bool precharge_ready = false;
 
 // VSM State
 uint16_t vsm_state = 0;
@@ -189,7 +190,7 @@ void read_apps_sensors() {
 
 void can_tx(int id, int length, byte data[]){
   digitalWrite(CAN_CS, LOW);
-  byte sendFrame = CAN0.sendMsgBuf(id, 0, length, data);
+  CAN0.sendMsgBuf(id, 0, length, data);
   digitalWrite(CAN_CS, HIGH);
 }
 
@@ -215,6 +216,10 @@ void can_rx() {
   case 0x0A5:
     motor_speed = rxBuf[3] << 8;
     motor_speed |= rxBuf[2];
+    break;
+
+  case 0x0E4:
+    precharge_ready = rxBuf[0] && 0x04;
     break;
   
   default:
@@ -396,7 +401,7 @@ void loop() {
 
   // Check if ready to drive should be enabled:
   if (!ready_to_drive){
-    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && (brakePressure1 > 10 || brakePressure2 > 10)){
+    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && precharge_ready && (brakePressure1 > 10 || brakePressure2 > 10)){
       if(vsm_state < 4 || vsm_state > 6){
         inverter_clear_faults();
       }else{
@@ -405,7 +410,7 @@ void loop() {
     }
   }
 
-  if (!shutdown_circuit || !ready_to_drive_switch || encoder_fault || vsm_state < 4 || vsm_state > 6){
+  if (!shutdown_circuit || !ready_to_drive_switch || vsm_state < 4 || vsm_state > 6){
     ready_to_drive = false;
   }
 
@@ -430,7 +435,7 @@ void loop() {
     // Byte 3 is VSM state, from the APPS perspective
     // Byte 4 holds some states, with each bit meaning this: 0bABCDEFGH
     // B - Implausibility 
-    // C - Encoder fault
+    // C - Precharge ready
     // D - Brakelight
     // E - Shutdown circuit
     // F - Ready to drive switch
@@ -456,7 +461,7 @@ void loop() {
     canFrame[7] = (int) brakePressure2;
 
     canFrame[3] = brakeImplausibility << 6;
-    canFrame[3] |= encoder_fault << 5;
+    canFrame[3] |= precharge_ready << 5;
     canFrame[3] |= brakelight << 4;
     canFrame[3] |= shutdown_circuit << 3;
     canFrame[3] |= ready_to_drive_switch << 2;
@@ -472,5 +477,6 @@ void loop() {
     // Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
     // Serial.println("Sensor 1%: " + String(sg_percentage1) + ", Sensor 2%: " + String(sg_percentage2));
     // Serial.println("Throttle %: " + String(canbus_signal));
+    Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2));
   }
 }
