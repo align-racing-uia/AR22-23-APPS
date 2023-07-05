@@ -17,7 +17,7 @@
 #define SPI_MISO 12
 #define SPI_SCLK 13
 
-#define APPS_TRAVEL 205.0 // Degrees x 10^(-1)
+#define APPS_TRAVEL 105.0 // Resolution of 1024 bit ADC
 
 // ID for default broadcasting of R2D state, and pedal pressures.
 #define APPS_BROADCAST_ID 0x0E1
@@ -28,6 +28,9 @@
 // ID for cascadia Relay and clear fault control.
 #define INV_RLY_ID 0x0C1
 #define INV_CLF_ID 0x0C1
+
+#define SENSOR1_PIN A7
+#define SENSOR2_PIN A3
 
 // ID of the dashboard brain, for spoofing.
 #define DB_ID 0x0E0
@@ -40,10 +43,14 @@
 #define BUZZER_DURATION 3 // seconds
 
 MCP_CAN CAN0(CAN_CS);
-AMT22* Encoder1;
-AMT22* Encoder2;
-uint16_t encoderPosition1;
-uint16_t encoderPosition2;
+
+uint16_t sensorPosition1;
+uint16_t sensorPosition2;
+
+uint16_t sensor1_throttle;
+uint16_t sensor2_throttle;
+
+uint16_t throttle;
 
 
 // CONFIG VARIABLES:
@@ -58,10 +65,10 @@ float apps_deadzone = 0.04;
 SPISettings settings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
 
 // Encoder 1 is a non inverted signal.
-uint16_t encoder1_min = 0xFFFF;
+uint16_t sensor1_min = 100;
 
 // Encoder 2 is a inverted signal.
-uint16_t encoder2_max = 0x0000;
+uint16_t sensor2_max = 500;
 
 // Brake pressure variables:
 float brakePressure1, brakePressure2;
@@ -118,10 +125,10 @@ int get_max_torque(){
   }
 
   if(motor_speed < 4200) {
-    return MAX_TORQUE - (int) (60.0 * ((float)(motor_speed % 3100) / 1100.0));
+    return MAX_TORQUE - (int) (600.0 * ((float)(motor_speed % 3100) / 1100.0));
   }
 
-  return 170 - (int) (45.0 * ((float)(motor_speed % 4200) / 1300.0));
+  return 170 - (int) (450.0 * ((float)(motor_speed % 4200) / 1300.0));
 
 }
 
@@ -155,22 +162,28 @@ float get_brake_pressure(int analogPin) {
 // We let up to 3 faults happen each reading, and if there is more than that, we enable a error flag.
 void read_apps_sensors() {
 
-  int faults = 0;
-  while(1){
-    encoderPosition1 = Encoder1->getPositionSPI();
-    encoderPosition2 = Encoder2->getPositionSPI();
+  //Serial.println(analogRead(SENSOR1_PIN));
+  //Serial.println(analogRead(SENSOR2_PIN));
 
-    if(encoderPosition1 == 0xFFFF || encoderPosition2 == 0xFFFF){
-      faults += 1;
-    }else{
-      return;
-    }
-    if(faults>=3){
-      encoder_fault = true;
-      deviation_error = true;
-      return;
-    }
+  sensorPosition1 = analogRead(SENSOR1_PIN);
+  sensorPosition2 = analogRead(SENSOR2_PIN);
+  
+  if(sensorPosition1 < 10 || sensorPosition2 < 10){
+    deviation_error = true;
   }
+
+  sensor1_throttle = constrain((int)(((double)(sensorPosition1-sensor1_min))/APPS_TRAVEL*100.0),0,100);
+  sensor2_throttle = constrain((int)(((double)(sensor2_max-sensorPosition2))/APPS_TRAVEL*100.0),0,100);
+
+  // Sanity Check 
+  if(sensorPosition1 < sensor1_min){
+    sensor1_throttle = 0;
+  }
+  if(sensorPosition2 > sensor2_max){
+    sensor2_throttle = 0;
+  }
+
+  
 
 }
 
@@ -200,8 +213,8 @@ void can_rx() {
     inverter_enable_lockout = 0x80 & rxBuf[6];
     break;
   case 0x0A5:
-    motor_speed = rxBuf[2] << 8;
-    motor_speed |= rxBuf[1];
+    motor_speed = rxBuf[3] << 8;
+    motor_speed |= rxBuf[2];
     break;
   
   default:
@@ -209,15 +222,6 @@ void can_rx() {
   }
 }
 
-
-void calibrate_apps(){
-  read_apps_sensors();
-  if(encoder_fault){
-    return;
-  }
-  encoder1_min = encoderPosition1 + APPS_TRAVEL * apps_deadzone;
-  encoder2_max = encoderPosition2 - APPS_TRAVEL * apps_deadzone;
-}
 
 // This is important!
 void inverter_command(int throttle) {
@@ -301,20 +305,6 @@ void setup() {
 
   Serial.begin(9600);
 
-  // Start SPI connection for the encoders.
-  setUpSPI(SPI_MOSI, SPI_MISO, SPI_SCLK, SPI_CLOCK_DIV64);
-
-  // Initializing both APPS sensors.
-  Encoder1 = new AMT22(ENC1_CS, RES12, settings);
-  Encoder2 = new AMT22(ENC2_CS, RES12, settings);
-
-  // Reseting both sensors
-  Encoder1->resetAMT22();
-  Encoder2->resetAMT22();
-
-
-  // Setting the zero point of the sensors
-  calibrate_apps();
 
 
   // Initializing CANBUS
@@ -359,36 +349,18 @@ void loop() {
   // Handle incoming canbus messages
   can_rx();
 
-  int sensor1 = encoderPosition1 - encoder1_min;
-  if(sensor1 < 0){
-    sensor1 = 0;
-  }
-
-  int sensor2 = encoder2_max - encoderPosition2;
-  if(sensor2 < 0){
-    sensor2 = 0;
-  }
-
-  // Calculating percentage of full pedal travel
-  int sg_percentage1 = constrain(sensor1 / (APPS_TRAVEL * (1.0 - apps_deadzone)) * 100, 0, 100);
-  int sg_percentage2 = constrain(sensor2 / (APPS_TRAVEL * (1.0 - apps_deadzone)) * 100, 0, 100);
 
   // To make sure we do not have a misread on one sensor, and that the car drives, when the pedal is in the zero position,
   // We take the minimum value of the pedal percentages.
-  uint8_t throttle_signal = min(sg_percentage1, sg_percentage2);
+  uint8_t throttle_signal = min(sensor1_throttle, sensor2_throttle);
   // As we are using unsigned integers for this, check if value is above 150%, and set to zero if this is the case
   // As it more than likely means that both of the integer values of the sensor wrapped around.
   if(throttle_signal > 150){
     throttle_signal = 0;
   }
 
-  // If encoder fault is present, we should not give any throttle signal.
-  if(encoder_fault){
-    throttle_signal = 0;
-  }
-
-  // Calculates the deviation percentage and checks how long an eventual fault has lasted
-  if(abs(sg_percentage1 - sg_percentage2) > 10){
+  // /sensor1_throttlehe deviation percentage and checks how long an eventual fault has lasted
+  if(abs(sensor1_throttle - sensor2_throttle) > 10){
     if(deviation_timestamp == 0){
       deviation_timestamp = millis();
     }
@@ -399,6 +371,7 @@ void loop() {
   }else{
     deviation_timestamp = 0;
   }
+
 
   if((brakePressure1 >= 30 || brakePressure2 >= 30) && throttle_signal >= 25) {
     if(brakeImplausibility_timestamp == 0){
@@ -476,8 +449,8 @@ void loop() {
 
     canFrame[2] = vsm_state;
 
-    canFrame[4] = sg_percentage1;
-    canFrame[5] = sg_percentage1;
+    canFrame[4] = sensorPosition1;
+    canFrame[5] = sensorPosition2;
 
     canFrame[6] = (int) brakePressure1;
     canFrame[7] = (int) brakePressure2;
@@ -495,6 +468,7 @@ void loop() {
     can_tx(APPS_BROADCAST_ID, 8 , canFrame);
 
     broadcast_timestamp = millis();
+    // Serial.println("Throttle % " + String(sensor1_throttle) + ", sensorPosition: " + String(sensorPosition1) + ", Raw throttle: " + String(sensorPosition1 - sensor1_min));
     // Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
     // Serial.println("Sensor 1%: " + String(sg_percentage1) + ", Sensor 2%: " + String(sg_percentage2));
     // Serial.println("Throttle %: " + String(canbus_signal));
