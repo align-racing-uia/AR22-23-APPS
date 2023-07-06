@@ -220,7 +220,7 @@ void can_rx() {
     break;
 
   case 0x0E4:
-    precharge_ready = rxBuf[0] && 0x04;
+    precharge_ready = rxBuf[0] & 0x04;
     break;
   
   default:
@@ -402,7 +402,7 @@ void loop() {
 
   // Check if ready to drive should be enabled:
   if (!ready_to_drive){
-    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && ready_to_drive_toggled && precharge_ready && (brakePressure1 > 10 || brakePressure2 > 10)){
+    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && precharge_ready && (brakePressure1 > 10 || brakePressure2 > 10)){
       if(vsm_state < 4 || vsm_state > 6){
         inverter_clear_faults();
       }else{
