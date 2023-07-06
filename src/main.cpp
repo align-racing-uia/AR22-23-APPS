@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <mcp_can.h>
 #include <SPI.h>
-#include <AMT22_lib.h>
 
 
 #define SDC A5
@@ -78,6 +77,7 @@ float brakePressure1, brakePressure2;
 bool deviation_error = false;
 bool ready_to_drive = false;
 bool ready_to_drive_switch = false;
+bool ready_to_drive_toggled = false;
 bool shutdown_circuit = false;
 bool encoder_fault = false;
 bool brakelight = false;
@@ -206,6 +206,7 @@ void can_rx() {
   case 0x0E0:
     
     r2d_timestamp = millis(); // This is a check for the watchdog
+    ready_to_drive_toggled = 0x1 & rxBuf[0] != ready_to_drive_switch;
     ready_to_drive_switch = 0x1 & rxBuf[0];
     break;
   
@@ -401,7 +402,7 @@ void loop() {
 
   // Check if ready to drive should be enabled:
   if (!ready_to_drive){
-    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && precharge_ready && (brakePressure1 > 10 || brakePressure2 > 10)){
+    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && ready_to_drive_toggled && precharge_ready && (brakePressure1 > 10 || brakePressure2 > 10)){
       if(vsm_state < 4 || vsm_state > 6){
         inverter_clear_faults();
       }else{
@@ -419,6 +420,9 @@ void loop() {
   if (deviation_error) {
      ready_to_drive = false;
   }
+
+  // Toggled is a one-shot:
+  ready_to_drive_toggled = false;
 
 
   if(millis() - command_timestamp > 10) {
