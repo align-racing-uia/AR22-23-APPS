@@ -52,8 +52,8 @@ uint16_t sensor2_throttle;
 uint16_t throttle;
 
 
-// CONFIG VARIABLES:
-float apps_deadzone = 0.03;
+// CONFIG VARIABLES: In %
+int apps_deadzone = 3;
 
 
 // SPI settings for the APPS sensors:
@@ -166,8 +166,8 @@ void read_apps_sensors() {
   //Serial.println(analogRead(SENSOR1_PIN));
   //Serial.println(analogRead(SENSOR2_PIN));
 
-  sensorPosition1 = analogRead(SENSOR1_PIN) - (int)((float)APPS_TRAVEL * apps_deadzone);
-  sensorPosition2 = analogRead(SENSOR2_PIN) + (int)((float)APPS_TRAVEL * apps_deadzone) ;
+  sensorPosition1 = analogRead(SENSOR1_PIN);
+  sensorPosition2 = analogRead(SENSOR2_PIN);
   
   if(sensorPosition1 < 10 || sensorPosition2 < 10){
     deviation_error = true;
@@ -234,7 +234,7 @@ void inverter_command(int throttle) {
   byte commandData[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
   // First 2 bytes are used for torque.
-  if (ready_to_drive){
+  if (ready_to_drive && throttle > apps_deadzone){
     int torque = (int) round(((double)throttle)/100.0 * get_max_torque());
     commandData[0] = torque & 0x00FF;
     commandData[1] = (torque >> 8) & 0xFF;
@@ -365,6 +365,9 @@ void loop() {
   // To make sure we do not have a misread on one sensor, and that the car drives, when the pedal is in the zero position,
   // We take the minimum value of the pedal percentages.
   uint8_t throttle_signal = min(sensor1_throttle, sensor2_throttle);
+
+  
+
   // As we are using unsigned integers for this, check if value is above 150%, and set to zero if this is the case
   // As it more than likely means that both of the integer values of the sensor wrapped around.
   if(throttle_signal > 150){
