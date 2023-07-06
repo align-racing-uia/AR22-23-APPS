@@ -53,7 +53,7 @@ uint16_t throttle;
 
 
 // CONFIG VARIABLES:
-float apps_deadzone = 0.04;
+float apps_deadzone = 0.03;
 
 
 // SPI settings for the APPS sensors:
@@ -166,15 +166,15 @@ void read_apps_sensors() {
   //Serial.println(analogRead(SENSOR1_PIN));
   //Serial.println(analogRead(SENSOR2_PIN));
 
-  sensorPosition1 = analogRead(SENSOR1_PIN);
-  sensorPosition2 = analogRead(SENSOR2_PIN);
+  sensorPosition1 = analogRead(SENSOR1_PIN) - (int)((float)APPS_TRAVEL * apps_deadzone);
+  sensorPosition2 = analogRead(SENSOR2_PIN) + (int)((float)APPS_TRAVEL * apps_deadzone) ;
   
   if(sensorPosition1 < 10 || sensorPosition2 < 10){
     deviation_error = true;
   }
 
-  sensor1_throttle = constrain((int)(((double)(sensorPosition1-sensor1_min))/APPS_TRAVEL*100.0),0,100);
-  sensor2_throttle = constrain((int)(((double)(sensor2_max-sensorPosition2))/APPS_TRAVEL*100.0),0,100);
+  sensor1_throttle = constrain((int)(((double)(sensorPosition1-sensor1_min))/(APPS_TRAVEL)*100.0),0,100);
+  sensor2_throttle = constrain((int)(((double)(sensor2_max-sensorPosition2))/(APPS_TRAVEL)*100.0),0,100);
 
   // Sanity Check 
   if(sensorPosition1 < sensor1_min){
@@ -325,9 +325,15 @@ void setup() {
 
   // Since most of the logging and monitoring is done on the dashboard module, we only care about dashboard buttons.
   // e.g. R2D. This puts less strain on the arduino.
-  CAN0.init_Mask(0, 0x03FF);
-  CAN0.init_Filt(0, 0x00E0);
-  CAN0.init_Filt(0, 0x00AA);
+  CAN0.init_Mask(0, 0x03FF0000);
+  CAN0.init_Filt(0, 0x00E00000);
+  CAN0.init_Filt(1, 0x00AA0000);
+  CAN0.init_Mask(1, 0x03FF0000);
+  CAN0.init_Filt(2, 0x00E00000);
+  CAN0.init_Filt(3, 0x00A50000);
+  CAN0.init_Filt(4, 0x00E40000);
+  CAN0.init_Filt(5, 0x00AA0000);
+
 
   // Set the MCP2515 into normal mode.
   CAN0.setMode(MCP_NORMAL);
@@ -402,7 +408,7 @@ void loop() {
 
   // Check if ready to drive should be enabled:
   if (!ready_to_drive){
-    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && precharge_ready && (brakePressure1 > 10 || brakePressure2 > 10)){
+    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && ready_to_drive_toggled && (brakePressure1 > 10 || brakePressure2 > 10)){
       if(vsm_state < 4 || vsm_state > 6){
         inverter_clear_faults();
       }else{
@@ -481,6 +487,6 @@ void loop() {
     // Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
     // Serial.println("Sensor 1%: " + String(sg_percentage1) + ", Sensor 2%: " + String(sg_percentage2));
     // Serial.println("Throttle %: " + String(canbus_signal));
-    Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2));
+    // Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2));
   }
 }
