@@ -16,7 +16,8 @@
 #define SPI_MISO 12
 #define SPI_SCLK 13
 
-#define APPS_TRAVEL 78.0 // Resolution of 1024 bit ADC
+#define APPS_TRAVEL_SENSOR1 192.0 // Resolution of 1024 bit ADC
+#define APPS_TRAVEL_SENSOR2 190.0
 
 // ID for default broadcasting of R2D state, and pedal pressures.
 #define APPS_BROADCAST_ID 0x0E1
@@ -44,16 +45,18 @@
 MCP_CAN CAN0(CAN_CS);
 
 uint16_t sensorPosition1;
+uint16_t oldSensorPosition1;
 uint16_t sensorPosition2;
+uint16_t oldSensorPosition2;
 
-uint16_t sensor1_throttle;
-uint16_t sensor2_throttle;
+int sensor1_throttle;
+int sensor2_throttle;
 
 uint16_t throttle;
 
 
 // CONFIG VARIABLES: In %
-int apps_deadzone = 3;
+int apps_deadzone = 0;
 
 
 // SPI settings for the APPS sensors:
@@ -64,10 +67,10 @@ int apps_deadzone = 3;
 SPISettings settings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
 
 // Encoder 1 is a non inverted signal.
-uint16_t sensor1_min = 691;
+uint16_t sensor1_min = 535;
 
 // Encoder 2 is a inverted signal.
-uint16_t sensor2_max = 374;
+uint16_t sensor2_max = 505;
 
 // Brake pressure variables:
 float brakePressure1, brakePressure2;
@@ -166,15 +169,17 @@ void read_apps_sensors() {
   //Serial.println(analogRead(SENSOR1_PIN));
   //Serial.println(analogRead(SENSOR2_PIN));
 
-  sensorPosition1 = analogRead(SENSOR1_PIN);
-  sensorPosition2 = analogRead(SENSOR2_PIN);
+  delayMicroseconds(500);
+  sensorPosition1 = (analogRead(SENSOR1_PIN) + analogRead(SENSOR1_PIN))/2;
+  delayMicroseconds(500);
+  sensorPosition2 = (analogRead(SENSOR2_PIN) + analogRead(SENSOR2_PIN))/2;
   
-  if(sensorPosition1 < 10 || sensorPosition2 < 10){
-    deviation_error = true;
-  }
+  // if(sensorPosition1 < 10 || sensorPosition2 < 10){
+  //   deviation_error = true;
+  // }
 
-  sensor1_throttle = constrain((int)(((double)(sensorPosition1-sensor1_min))/(APPS_TRAVEL)*100.0),0,100);
-  sensor2_throttle = constrain((int)(((double)(sensor2_max-sensorPosition2))/(APPS_TRAVEL)*100.0),0,100);
+  sensor1_throttle = constrain((int)(((double)(sensorPosition1-sensor1_min))/(APPS_TRAVEL_SENSOR1)*100.0),0,100);
+  sensor2_throttle = constrain((int)(((double)(sensor2_max-sensorPosition2))/(APPS_TRAVEL_SENSOR2)*100.0),0,100);
 
   // Sanity Check 
   if(sensorPosition1 < sensor1_min){
@@ -324,6 +329,7 @@ void setup() {
   // set ids will pass through.
 
   sensor1_min = analogRead(SENSOR1_PIN);
+  delayMicroseconds(100);
   sensor2_max = analogRead(SENSOR2_PIN);
 
   // Since most of the logging and monitoring is done on the dashboard module, we only care about dashboard buttons.
@@ -382,7 +388,7 @@ void loop() {
     if(deviation_timestamp == 0){
       deviation_timestamp = millis();
     }
-    if(millis() - deviation_timestamp > 100){
+    if(millis() - deviation_timestamp > 200){
       deviation_error = true;
     }
     
@@ -493,6 +499,6 @@ void loop() {
     // Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
     // Serial.println("Sensor 1%: " + String(sg_percentage1) + ", Sensor 2%: " + String(sg_percentage2));
     // Serial.println("Throttle %: " + String(canbus_signal));
-    Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2));
+    // Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2) + ", Deviation: "+String(deviation_error));
   }
 }
