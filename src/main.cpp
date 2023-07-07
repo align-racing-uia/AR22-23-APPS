@@ -56,7 +56,7 @@ uint16_t throttle;
 
 
 // CONFIG VARIABLES: In %
-int apps_deadzone = 0;
+int apps_deadzone = 3;
 
 
 // SPI settings for the APPS sensors:
@@ -239,8 +239,9 @@ void inverter_command(int throttle) {
   byte commandData[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
   // First 2 bytes are used for torque.
-  if (ready_to_drive && throttle > apps_deadzone){
-    int torque = (int) round(((double)throttle)/100.0 * get_max_torque());
+  if (ready_to_drive){
+    // Limits max torque to (100-apps_deadzone)%.. But its a quick and safe fix for a deadzone
+    int torque = (int) round(((double)(throttle-apps_deadzone))/(100.0) * get_max_torque());
     commandData[0] = torque & 0x00FF;
     commandData[1] = (torque >> 8) & 0xFF;
   }
@@ -254,26 +255,26 @@ void inverter_command(int throttle) {
   // Byte 5, bit 1 is inverter enable, which it should be if we are ready to drive.
   commandData[5] = ready_to_drive;
 
-  // Kind of a bugfix.
+  // Kind of a bugfix. Related to an old inverter
   // The current inverter sometimes goes into Inverter Enable lockout mode after power cycling.
   // And it wont reset unless we cycle inverter enable at least once.
-  if(inverter_enable_lockout){
-    if(lockout_timestamp == 0){
-      lockout_timestamp = millis();
-    }
+  // if(inverter_enable_lockout){
+  //   if(lockout_timestamp == 0){
+  //     lockout_timestamp = millis();
+  //   }
 
-    if(millis() - lockout_timestamp < 100){
-      commandData[5] = true;
-    }else if(millis() - lockout_timestamp < 300){
-      commandData[5] = false;
-    }else{
-      lockout_timestamp = 0;
-      inverter_enable_lockout = false;
-    }
+  //   if(millis() - lockout_timestamp < 100){
+  //     commandData[5] = true;
+  //   }else if(millis() - lockout_timestamp < 300){
+  //     commandData[5] = false;
+  //   }else{
+  //     lockout_timestamp = 0;
+  //     inverter_enable_lockout = false;
+  //   }
 
-  }else{
-    lockout_timestamp = 0;
-  }
+  // }else{
+  //   lockout_timestamp = 0;
+  // }
 
   commandData[6] = MAX_TORQUE & 0x00FF;
   commandData[7] = (MAX_TORQUE >> 8) & 0xFF;
@@ -332,6 +333,7 @@ void setup() {
   delayMicroseconds(100);
   sensor2_max = analogRead(SENSOR2_PIN);
 
+
   // Since most of the logging and monitoring is done on the dashboard module, we only care about dashboard buttons.
   // e.g. R2D. This puts less strain on the arduino.
   CAN0.init_Mask(0, 0x03FF0000);
@@ -388,7 +390,7 @@ void loop() {
     if(deviation_timestamp == 0){
       deviation_timestamp = millis();
     }
-    if(millis() - deviation_timestamp > 200){
+    if(millis() - deviation_timestamp > 100){
       deviation_error = true;
     }
     
@@ -414,29 +416,24 @@ void loop() {
 
   // If we havent heard anything from the dashboard in over a second, 
   // we should have a failstate which assumes the switch is off.
-  if(millis() - r2d_timestamp > 2000){
+  if(millis() - r2d_timestamp > 5000){
     ready_to_drive_switch = false;
   }
 
   // Check if ready to drive should be enabled:
   if (!ready_to_drive){
-    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && ready_to_drive_toggled && (brakePressure1 > 10 || brakePressure2 > 10)){
+    if(throttle_signal < 5 && shutdown_circuit && ready_to_drive_switch && ready_to_drive_toggled && precharge_ready && (brakePressure1 > 10 || brakePressure2 > 10)){
       if(vsm_state < 4 || vsm_state > 6){
         inverter_clear_faults();
-      }else{
-        ready_to_drive = true;
+        delay(10);
+
       }
+      ready_to_drive = true;
     }
   }
 
-  if (!shutdown_circuit || !ready_to_drive_switch || vsm_state < 4 || vsm_state > 6){
+  if (!shutdown_circuit || !ready_to_drive_switch || vsm_state < 4 || vsm_state > 6 || deviation_error){
     ready_to_drive = false;
-  }
-
-  // Before sending messages to the inverter, we should make sure that the car is still in a good state:
-  // TODO: Add more flags!
-  if (deviation_error) {
-     ready_to_drive = false;
   }
 
   // Toggled is a one-shot:
