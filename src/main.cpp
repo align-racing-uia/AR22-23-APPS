@@ -323,6 +323,9 @@ void setup() {
   // Standard id range is from 0x0000 - 0x03FF, First mask enables all bits in the filters, meaning only
   // set ids will pass through.
 
+  sensor1_min = analogRead(SENSOR1_PIN);
+  sensor2_max = analogRead(SENSOR2_PIN);
+
   // Since most of the logging and monitoring is done on the dashboard module, we only care about dashboard buttons.
   // e.g. R2D. This puts less strain on the arduino.
   CAN0.init_Mask(0, 0x03FF0000);
@@ -467,8 +470,8 @@ void loop() {
 
     canFrame[2] = vsm_state;
 
-    canFrame[4] = sensorPosition1;
-    canFrame[5] = sensorPosition2;
+    canFrame[4] = sensor1_throttle;
+    canFrame[5] = sensor2_throttle;
 
     canFrame[6] = (int) brakePressure1;
     canFrame[7] = (int) brakePressure2;
@@ -490,6 +493,6 @@ void loop() {
     // Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
     // Serial.println("Sensor 1%: " + String(sg_percentage1) + ", Sensor 2%: " + String(sg_percentage2));
     // Serial.println("Throttle %: " + String(canbus_signal));
-    // Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2));
+    Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2));
   }
 }
