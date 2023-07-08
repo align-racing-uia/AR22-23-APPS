@@ -242,6 +242,9 @@ void inverter_command(int throttle) {
   if (ready_to_drive){
     // Limits max torque to (100-apps_deadzone)%.. But its a quick and safe fix for a deadzone
     int torque = (int) round(((double)(throttle-apps_deadzone))/(100.0) * get_max_torque());
+    if (torque < 0){
+      torque = 0;
+    }
     commandData[0] = torque & 0x00FF;
     commandData[1] = (torque >> 8) & 0xFF;
   }
