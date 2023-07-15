@@ -21,6 +21,7 @@
 
 // ID for default broadcasting of R2D state, and pedal pressures.
 #define APPS_BROADCAST_ID 0x0E1
+#define APPS_DEBUG_ID 0x0F1
 
 // ID for cascadia command
 #define INV_CMD_ID 0x0C0
@@ -40,6 +41,7 @@
 #define SDC_OPEN_ID2 0x0B1
 
 #define MAX_TORQUE 2220 // Nm * 10
+#define START_TORQUE 1000 // Nm * 10
 #define BUZZER_DURATION 3 // seconds
 
 MCP_CAN CAN0(CAN_CS);
@@ -87,6 +89,7 @@ bool brakelight = false;
 bool brakeImplausibility = false;
 bool inverter_enable_lockout = false;
 bool precharge_ready = false;
+bool debug_active = false;
 
 // VSM State
 uint16_t vsm_state = 0;
@@ -124,6 +127,10 @@ unsigned char rxBuf[8];
 
 int get_max_torque(){
 
+  if(motor_speed <= 1000) {
+    return START_TORQUE + (int)((float)(motor_speed / 1000.0)*(float)(MAX_TORQUE - START_TORQUE));
+  }
+
   if(motor_speed < 3100) {
     return MAX_TORQUE;
   }
@@ -132,7 +139,8 @@ int get_max_torque(){
     return MAX_TORQUE - (int) (600.0 * ((float)(motor_speed % 3100) / 1100.0));
   }
 
-  return 170 - (int) (450.0 * ((float)(motor_speed % 4200) / 1300.0));
+
+  return 1700 - (int) (450.0 * ((float)(motor_speed % 4200) / 1300.0));
 
 }
 
@@ -174,9 +182,11 @@ void read_apps_sensors() {
   delayMicroseconds(500);
   sensorPosition2 = (analogRead(SENSOR2_PIN) + analogRead(SENSOR2_PIN))/2;
   
-  // if(sensorPosition1 < 10 || sensorPosition2 < 10){
-  //   deviation_error = true;
-  // }
+  if(sensorPosition1 < 10 || sensorPosition2 < 10){
+    deviation_error = true;
+  }else if(sensorPosition1 < (sensor1_min - 100) || sensorPosition2 > (sensor2_max + 100)) {
+    deviation_error = true;
+  }
 
   sensor1_throttle = constrain((int)(((double)(sensorPosition1-sensor1_min))/(APPS_TRAVEL_SENSOR1)*100.0),0,100);
   sensor2_throttle = constrain((int)(((double)(sensor2_max-sensorPosition2))/(APPS_TRAVEL_SENSOR2)*100.0),0,100);
@@ -211,7 +221,7 @@ void can_rx() {
   case 0x0E0:
     
     r2d_timestamp = millis(); // This is a check for the watchdog
-    ready_to_drive_toggled = 0x1 & rxBuf[0] != ready_to_drive_switch;
+    ready_to_drive_toggled = (0x1 & rxBuf[0]) != ready_to_drive_switch;
     ready_to_drive_switch = 0x1 & rxBuf[0];
     break;
   
@@ -227,7 +237,10 @@ void can_rx() {
   case 0x0E4:
     precharge_ready = rxBuf[0] & 0x04;
     break;
-  
+
+  case 0x0F0:
+    debug_active = rxBuf[0] & 0x01;
+    break;
   default:
     return;
   }
@@ -246,9 +259,9 @@ void inverter_command(int throttle) {
       torque = 0;
     }
     // Dumb ass regen fix
-    if(motor_speed > 200 && torque < 100) {
-      torque = 100;
-    }
+    // if(motor_speed > 200 && torque < 100) {
+    //   torque = 100;
+    // }
     commandData[0] = torque & 0x00FF;
     commandData[1] = (torque >> 8) & 0xFF;
   }
@@ -350,7 +363,7 @@ void setup() {
   CAN0.init_Filt(2, 0x00E00000);
   CAN0.init_Filt(3, 0x00A50000);
   CAN0.init_Filt(4, 0x00E40000);
-  CAN0.init_Filt(5, 0x00AA0000);
+  CAN0.init_Filt(5, 0x00F00000);
 
 
   // Set the MCP2515 into normal mode.
@@ -415,7 +428,7 @@ void loop() {
     }
     
   }else{
-    if(brakeImplausibility == true && brakeImplausibility_timestamp != 0 && throttle_signal == 0){
+    if(brakeImplausibility == true && brakeImplausibility_timestamp != 0 && throttle_signal < 1){
       brakeImplausibility = false;
       brakeImplausibility_timestamp = 0;
     }
@@ -497,12 +510,19 @@ void loop() {
 
     // Send canbus frame:
     can_tx(APPS_BROADCAST_ID, 8 , canFrame);
-
+    if(debug_active){
+      byte canDebug[4] = {0x00, 0x00, 0x00, 0x00};
+      canDebug[0] = sensorPosition1 >> 8;
+      canDebug[1] = sensorPosition1;
+      canDebug[2] = sensorPosition2 >> 8;
+      canDebug[3] = sensorPosition2;
+      can_tx(APPS_DEBUG_ID, 4, canDebug);
+    }
     broadcast_timestamp = millis();
     // Serial.println("Throttle % " + String(sensor1_throttle) + ", sensorPosition: " + String(sensorPosition1) + ", Raw throttle: " + String(sensorPosition1 - sensor1_min));
     // Serial.println("Brake pressure 1: " + String(brakePressure1) + ", Brake pressure 2: " + String(brakePressure2));
     // Serial.println("Sensor 1%: " + String(sg_percentage1) + ", Sensor 2%: " + String(sg_percentage2));
     // Serial.println("Throttle %: " + String(canbus_signal));
-    // Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2) + ", Deviation: "+String(deviation_error));
+    Serial.println("Sensor1: " + String(sensor1_throttle) + "% - " + String(sensorPosition1) + ", Sensor2: " + String(sensor2_throttle) + "% - " + String(sensorPosition2) + ", Deviation: "+String(deviation_error));
   }
 }
